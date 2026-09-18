@@ -87,13 +87,19 @@ async def receive_meta_webhook(request: Request):
 
     # Look up Tenant associated with this phone_number_id
     async with AsyncSessionLocal() as db:
-        stmt = select(Tenant).where(Tenant.phone_number_id == phone_number_id)
+        stmt = (
+            select(Tenant)
+            .where(Tenant.phone_number_id == phone_number_id)
+            .order_by(Tenant.is_active.desc(), Tenant.updated_at.desc())
+        )
         res = await db.execute(stmt)
-        tenant = res.scalar_one_or_none()
+        tenant = res.scalars().first()
 
         # Fallback to first active tenant for testing/local development
         if not tenant:
-            fallback_res = await db.execute(select(Tenant).where(Tenant.is_active == True))
+            fallback_res = await db.execute(
+                select(Tenant).where(Tenant.is_active == True).order_by(Tenant.updated_at.desc())
+            )
             tenant = fallback_res.scalars().first()
 
     if not tenant:

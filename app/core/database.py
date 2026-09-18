@@ -65,10 +65,10 @@ async def seed_default_restaurant():
     from sqlalchemy import select
     from app.models.tenant import Tenant
     from app.models.menu import MenuCategory, MenuItem
-
     async with AsyncSessionLocal() as db:
-        res = await db.execute(select(Tenant).where(Tenant.phone_number_id == settings.META_PHONE_NUMBER_ID))
-        tenant = res.scalar_one_or_none()
+        stmt = select(Tenant).where(Tenant.phone_number_id == settings.META_PHONE_NUMBER_ID).order_by(Tenant.is_active.desc())
+        res = await db.execute(stmt)
+        tenant = res.scalars().first()
         if not tenant:
             restaurant_name = settings.DEFAULT_RESTAURANT_ID.replace("-", " ").title()
             tenant = Tenant(
