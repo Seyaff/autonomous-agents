@@ -11,7 +11,11 @@ from app.core.database import AsyncSessionLocal
 from app.models.tenant import Tenant
 from app.agents.tenant.customer_support.state import CustomerSupportState, CartItem
 from app.agents.tenant.customer_support.prompts import CUSTOMER_SUPPORT_SYSTEM_PROMPT
-from app.agents.tenant.customer_support.tools import search_menu_items, create_confirmed_order
+from app.agents.tenant.customer_support.tools import (
+    search_menu_items,
+    create_confirmed_order,
+    get_active_customer_order
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,22 +96,38 @@ async def run_customer_support_graph(
     # 2. Get available menu items for context
     menu_items = await search_menu_items(tenant_id)
     menu_catalog_str = "\n".join([
-        f"- {item['name']}: ${item['price']:.2f} ({item['description']})"
+        f"- {item['name']}: Rs. {item['price']:.0f} ({item['description']})"
         for item in menu_items
     ]) or "No items currently on the menu."
 
     cart_summary = "\n".join([
-        f"- {it['quantity']}x {it['name']} @ ${it['price']:.2f} each"
+        f"- {it['quantity']}x {it['name']} @ Rs. {it['price']:.0f} each"
         for it in session["cart"]
     ]) or "Cart is empty."
     cart_total = sum(it["price"] * it["quantity"] for it in session["cart"])
 
+    # 3. Fetch active / recent order from database (Ground truth memory)
+    active_order = await get_active_customer_order(tenant_id, sender_phone)
+    active_order_context = ""
+    if active_order:
+        items_line = ", ".join([f"{it['quantity']}x {it['name']}" for it in active_order["items"]])
+        active_order_context = (
+            f"\n\nACTIVE ORDER ON FILE FOR THIS CUSTOMER:\n"
+            f"- Order Number: {active_order['order_number']}\n"
+            f"- Placed At: {active_order['created_at']}\n"
+            f"- Status: {active_order['status']}\n"
+            f"- Items: {items_line}\n"
+            f"- Total: Rs. {active_order['total_amount']:.0f}\n"
+            f"- Address: {active_order['delivery_address'] or 'Standard Delivery'}\n"
+            "CUSTOMER REMINDER: Customer ka yeh order already system mein majood hai! Agar customer order status, confirmation ya delivery time pooche, to foran yeh exact details bata kar mutma'in karein!"
+        )
+
     system_prompt = CUSTOMER_SUPPORT_SYSTEM_PROMPT.format(
         restaurant_name=restaurant_name,
-        currency=currency,
+        currency="Rs.",
         address=address,
         opening_hours=opening_hours
-    ) + f"\n\nCURRENT MENU:\n{menu_catalog_str}\n\nCURRENT CUSTOMER CART:\n{cart_summary}\nCart Total: ${cart_total:.2f}"
+    ) + f"\n\nCURRENT MENU:\n{menu_catalog_str}\n\nCURRENT CUSTOMER CART:\n{cart_summary}\nCart Total: Rs. {cart_total:.0f}{active_order_context}"
 
     model = get_model()
 
@@ -124,7 +144,7 @@ async def run_customer_support_graph(
 
             # Check if customer wants to finalize order
             lower_msg = user_message.lower()
-            if any(word in lower_msg for word in ["checkout", "confirm order", "place order", "buy now"]):
+            if any(word in lower_msg for word in ["checkout", "confirm order", "place order", "buy now", "order confirm"]):
                 if session["cart"]:
                     order_result = await create_confirmed_order(
                         tenant_id=tenant_id,
@@ -135,9 +155,9 @@ async def run_customer_support_graph(
                     )
                     reply_text += (
                         f"\n\n🎉 *Order Confirmed! {order_result['order_number']}*\n"
-                        f"Total: ${order_result['total_amount']:.2f} (Paid via Instant Dummy Payment)\n"
+                        f"Total: Rs. {order_result['total_amount']:.0f} (Paid via Instant Dummy Payment)\n"
                         f"Estimated Delivery: {order_result['estimated_delivery_minutes']} mins.\n"
-                        "Our kitchen has received your order!"
+                        "Kitchen ne aapka order receive kar liya hai aur tayyari shuru hai! 🍳"
                     )
                     session["cart"] = []
 

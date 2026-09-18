@@ -57,8 +57,10 @@ async def receive_meta_webhook(request: Request):
     sender_phone = msg.get("from")
     msg_type = msg.get("type")
 
-    # Extract text content
+    # Extract message content (Text, Interactive Buttons, Documents/Images)
     user_text = ""
+    document_bytes = None
+
     if msg_type == "text":
         user_text = msg.get("text", {}).get("body", "")
     elif msg_type == "interactive":
@@ -67,6 +69,21 @@ async def receive_meta_webhook(request: Request):
             user_text = interactive.get("button_reply", {}).get("title", "")
         elif interactive.get("type") == "list_reply":
             user_text = interactive.get("list_reply", {}).get("title", "")
+    elif msg_type == "document":
+        doc = msg.get("document", {})
+        media_id = doc.get("id")
+        filename = doc.get("filename", "menu.pdf")
+        user_text = doc.get("caption") or f"Uploaded document: {filename}"
+        if media_id:
+            token = settings.META_ACCESS_TOKEN
+            document_bytes = await whatsapp_service.download_media_bytes(media_id, token)
+    elif msg_type == "image":
+        img = msg.get("image", {})
+        media_id = img.get("id")
+        user_text = img.get("caption") or "Uploaded menu image"
+        if media_id:
+            token = settings.META_ACCESS_TOKEN
+            document_bytes = await whatsapp_service.download_media_bytes(media_id, token)
 
     # Look up Tenant associated with this phone_number_id
     async with AsyncSessionLocal() as db:
@@ -90,16 +107,17 @@ async def receive_meta_webhook(request: Request):
     lower_text = user_text.lower().strip()
     is_owner = bool(tenant.owner_whatsapp_number and sender_phone.replace("+", "") == tenant.owner_whatsapp_number.replace("+", ""))
     
-    # Check if this is an explicit owner inventory command
+    # Check if this is an owner inventory command or uploaded menu document
     owner_keywords = ["inventory", "out of", "sold out", "ran out of", "back in stock", "restocked", "86", "/owner", "owner"]
-    is_owner_inventory_cmd = is_owner and any(kw in lower_text for kw in owner_keywords)
+    is_owner_inventory_cmd = is_owner and (any(kw in lower_text for kw in owner_keywords) or document_bytes is not None)
 
     if is_owner_inventory_cmd:
-        # 1. Explicit Owner message -> Inventory / Catalog Agent
+        # 1. Explicit Owner message or Document Ingestion -> Inventory Agent
         reply_text = await process_owner_inventory_message(
             tenant_id=tenant_id,
             owner_phone=sender_phone,
-            message_text=user_text
+            message_text=user_text,
+            document_bytes=document_bytes
         )
     elif settings.FOUNDER_PHONE_NUMBER and sender_phone.replace("+", "") == settings.FOUNDER_PHONE_NUMBER.replace("+", "") and lower_text.startswith("/founder"):
         # 2. Explicit Founder command -> Business Ops Agent
@@ -114,11 +132,31 @@ async def receive_meta_webhook(request: Request):
 
     # Dispatch reply back over WhatsApp
     if reply_text:
-        await whatsapp_service.send_text_message(
-            to_phone=sender_phone,
-            text=reply_text,
-            phone_number_id=phone_number_id or tenant.phone_number_id,
-            access_token=settings.META_ACCESS_TOKEN or tenant.meta_access_token
-        )
+        # If the reply mentions order review / subtotal, send 1-click confirmation buttons!
+        if "confirm order" in lower_text or "checkout" in lower_text:
+            await whatsapp_service.send_text_message(
+                to_phone=sender_phone,
+                text=reply_text,
+                phone_number_id=phone_number_id or tenant.phone_number_id,
+                access_token=settings.META_ACCESS_TOKEN or tenant.meta_access_token
+            )
+        elif any(k in reply_text.lower() for k in ["cart total", "current cart", "order confirmed"]):
+            await whatsapp_service.send_interactive_buttons(
+                to_phone=sender_phone,
+                body_text=reply_text,
+                buttons=[
+                    {"id": "btn_confirm", "title": "✅ Confirm Order"},
+                    {"id": "btn_menu", "title": "🍽️ View Menu"}
+                ],
+                phone_number_id=phone_number_id or tenant.phone_number_id,
+                access_token=settings.META_ACCESS_TOKEN or tenant.meta_access_token
+            )
+        else:
+            await whatsapp_service.send_text_message(
+                to_phone=sender_phone,
+                text=reply_text,
+                phone_number_id=phone_number_id or tenant.phone_number_id,
+                access_token=settings.META_ACCESS_TOKEN or tenant.meta_access_token
+            )
 
     return {"status": "success", "reply": reply_text}

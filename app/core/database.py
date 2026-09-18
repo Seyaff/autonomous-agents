@@ -66,7 +66,7 @@ async def seed_default_restaurant():
                 phone_number_id=settings.META_PHONE_NUMBER_ID,
                 meta_access_token=settings.META_ACCESS_TOKEN,
                 owner_whatsapp_number=settings.OWNER_WHATSAPP_PHONE or "923417268523",
-                currency="USD",
+                currency="PKR",
                 address="Peshawar / Islamabad Highway",
                 opening_hours="12:00 PM - 12:00 AM",
                 is_active=True
@@ -86,31 +86,31 @@ async def seed_default_restaurant():
                     tenant_id=tenant.id, category_id=cat_special.id,
                     name="Peshawari Chapli Kabab",
                     description="Traditional spiced minced beef patties fried in tallow with pomegranate seeds",
-                    price=12.00, is_available=True
+                    price=650.00, is_available=True
                 ),
                 MenuItem(
                     tenant_id=tenant.id, category_id=cat_special.id,
                     name="Kabuli Pulao",
                     description="Fragrant sella rice with tender mutton shanks, caramelized carrots & raisins",
-                    price=15.00, is_available=True
+                    price=850.00, is_available=True
                 ),
                 MenuItem(
                     tenant_id=tenant.id, category_id=cat_bbq.id,
                     name="Shinwari Mutton Karahi",
                     description="Fresh young lamb cooked in black pepper, fresh tomatoes, and green chillies",
-                    price=24.00, is_available=True
+                    price=2400.00, is_available=True
                 ),
                 MenuItem(
                     tenant_id=tenant.id, category_id=cat_sides.id,
                     name="Roghani Naan",
                     description="Fluffy tandoori bread brushed with butter and sesame seeds",
-                    price=2.50, is_available=True
+                    price=80.00, is_available=True
                 ),
                 MenuItem(
                     tenant_id=tenant.id, category_id=cat_sides.id,
                     name="Peshawari Kahwa Green Tea",
                     description="Traditional green tea infused with cardamom and saffron",
-                    price=3.00, is_available=True
+                    price=120.00, is_available=True
                 )
             ]
             db.add_all(items)
