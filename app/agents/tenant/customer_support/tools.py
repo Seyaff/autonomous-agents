@@ -126,7 +126,7 @@ async def create_confirmed_order(
                 f"Customer: {customer_phone}\n"
                 f"Type: {delivery_type.capitalize()}\n"
                 f"Address: {delivery_address or 'Pickup at counter'}\n"
-                f"Total: ${total_amount:.2f} (Paid)\n\n"
+                f"Total: Rs. {total_amount:.0f} (Paid)\n\n"
                 f"Items:\n{items_summary}"
             )
             await whatsapp_service.send_text_message(
@@ -145,4 +145,35 @@ async def create_confirmed_order(
             "delivery_address": delivery_address,
             "items": cart_items,
             "estimated_delivery_minutes": 35
+        }
+
+async def get_active_customer_order(tenant_id: str, customer_phone: str) -> Optional[Dict[str, Any]]:
+    """Fetch the most recent active or recent order for the customer from the database."""
+    async with AsyncSessionLocal() as db:
+        # Check for non-delivered active order first
+        stmt = (
+            select(Order)
+            .join(Customer, Order.customer_id == Customer.id)
+            .where(Order.tenant_id == uuid.UUID(tenant_id))
+            .where(Customer.whatsapp_phone == customer_phone)
+            .order_by(Order.created_at.desc())
+        )
+        res = await db.execute(stmt)
+        order = res.scalars().first()
+        if not order:
+            return None
+
+        # Fetch items
+        items_stmt = select(OrderItem).where(OrderItem.order_id == order.id)
+        i_res = await db.execute(items_stmt)
+        items = i_res.scalars().all()
+
+        return {
+            "order_number": order.order_number,
+            "status": order.status,
+            "total_amount": float(order.total_amount),
+            "payment_status": order.payment_status,
+            "delivery_address": order.delivery_address,
+            "created_at": order.created_at.strftime("%I:%M %p") if order.created_at else "Recently",
+            "items": [{"name": it.item_name, "quantity": it.quantity, "total": float(it.total_price)} for it in items]
         }
