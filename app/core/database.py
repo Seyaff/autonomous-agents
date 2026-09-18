@@ -42,6 +42,18 @@ async def init_db():
             await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
         await conn.run_sync(Base.metadata.create_all)
 
+        # Auto-migrate missing columns for SQLite
+        if "sqlite" in settings.DATABASE_URL:
+            for col, col_type in [
+                ("cuisine", "VARCHAR(100)"),
+                ("city", "VARCHAR(100)"),
+                ("onboarding_step", "VARCHAR(50) DEFAULT 'DRAFT'")
+            ]:
+                try:
+                    await conn.execute(text(f"ALTER TABLE tenants ADD COLUMN {col} {col_type}"))
+                except Exception:
+                    pass  # column already exists
+
     # Auto-seed default restaurant if test phone number ID is present
     await seed_default_restaurant()
 
@@ -53,10 +65,10 @@ async def seed_default_restaurant():
     from sqlalchemy import select
     from app.models.tenant import Tenant
     from app.models.menu import MenuCategory, MenuItem
-
     async with AsyncSessionLocal() as db:
-        res = await db.execute(select(Tenant).where(Tenant.phone_number_id == settings.META_PHONE_NUMBER_ID))
-        tenant = res.scalar_one_or_none()
+        stmt = select(Tenant).where(Tenant.phone_number_id == settings.META_PHONE_NUMBER_ID).order_by(Tenant.is_active.desc())
+        res = await db.execute(stmt)
+        tenant = res.scalars().first()
         if not tenant:
             restaurant_name = settings.DEFAULT_RESTAURANT_ID.replace("-", " ").title()
             tenant = Tenant(
@@ -67,9 +79,12 @@ async def seed_default_restaurant():
                 meta_access_token=settings.META_ACCESS_TOKEN,
                 owner_whatsapp_number=settings.OWNER_WHATSAPP_PHONE or "923417268523",
                 currency="PKR",
+                cuisine="Shinwari & Peshawari BBQ",
+                city="Kohat",
                 address="Peshawar / Islamabad Highway",
                 opening_hours="12:00 PM - 12:00 AM",
-                is_active=True
+                is_active=True,
+                onboarding_step="ACTIVE"
             )
             db.add(tenant)
             await db.flush()
@@ -115,4 +130,3 @@ async def seed_default_restaurant():
             ]
             db.add_all(items)
             await db.commit()
-

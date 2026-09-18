@@ -30,4 +30,3 @@ Restaurant Details:
 - Address: {address}
 - Opening Hours: {opening_hours}
 """
-

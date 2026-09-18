@@ -26,10 +26,13 @@ class Tenant(Base):
     kitchen_whatsapp_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     
     # Business settings
-    currency: Mapped[str] = mapped_column(String(10), default="USD")
+    currency: Mapped[str] = mapped_column(String(10), default="PKR")
+    cuisine: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     address: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     opening_hours: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    onboarding_step: Mapped[str] = mapped_column(String(50), default="DRAFT")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
