@@ -1,0 +1,6 @@
+fastapi[standard]
+pymongo
+langchain
+langchain-groq
+langgraph
+pydantic
