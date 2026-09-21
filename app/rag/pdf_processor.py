@@ -10,7 +10,7 @@ async def process_pdf(file: UploadFile) -> List[Document]:
     """Reads PDF bytes directly from memory and converts pages to LangChain Documents."""
     contents = await file.read()
     
-    # Read PDF directly from bytes stream in memory (no disk I/O required)
+    
     pdf_stream = io.BytesIO(contents)
     reader = PdfReader(pdf_stream)
     
