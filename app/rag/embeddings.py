@@ -88,6 +88,7 @@ async def create_chunks(
     return text_splitter.split_documents(documents)
 
 
+
 async def embed_and_store_chunks(
     chunks: List[Document],
     tenant_id: str = "bro-tenanth+",
