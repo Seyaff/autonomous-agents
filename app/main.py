@@ -25,10 +25,3 @@ v1_router.include_router(whatsapp_router)
 v1_router.include_router(alias_router)
 
 app.include_router(v1_router)
-
-
-PORT = int(os.getenv("PORT", 8000))
-
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False)
