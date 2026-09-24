@@ -13,7 +13,7 @@ from core.settings import settings
 # 1. Cloud-hosted Inference (Zero local RAM overhead, eliminates PyTorch OOM)
 # Uses Pinecone's standard 1024/384-dim cloud embedding endpoints
 embedding_model = PineconeEmbeddings(
-    model="multilingual-e5-large",
+    model="llama-text-embed-v2",
     pinecone_api_key=settings.PINECONE_API_KEY,
 )
 
