@@ -13,7 +13,6 @@ dependencies = [
     "langchain-pinecone>=0.2.13",
     "langgraph>=1.2.11",
     "pinecone>=7.3.0",
-    "pinecone-client>=6.0.0",
     "pydantic>=2.13.5",
     "pymongo>=4.18.1",
     "pypdf>=6.19.0",
