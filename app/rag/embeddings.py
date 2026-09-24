@@ -6,14 +6,15 @@ from pinecone import Pinecone
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_pinecone import PineconeVectorStore
+from langchain_pinecone import PineconeVectorStore, PineconeEmbeddings
 
 from core.settings import settings
 
-# 1. Initialize HuggingFace embeddings (384 dimensions for all-MiniLM-L6-v2)
-embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+# 1. Cloud-hosted Inference (Zero local RAM overhead, eliminates PyTorch OOM)
+# Uses Pinecone's standard 1024/384-dim cloud embedding endpoints
+embedding_model = PineconeEmbeddings(
+    model="multilingual-e5-large",
+    pinecone_api_key=settings.PINECONE_API_KEY,
 )
 
 pc = Pinecone(api_key=settings.PINECONE_API_KEY)
@@ -34,11 +35,6 @@ def verify_and_get_index_info(index_name: str = "pdf-rag-index"):
     print(f"Connected to Pinecone Index: {index_name}")
     print(f"Total Vector Count: {stats.total_vector_count}")
     print(f"Dimension: {stats.dimension}")
-
-    if stats.dimension != 384:
-        print(
-            f"⚠️ WARNING: Index dimension is {stats.dimension}, but all-MiniLM-L6-v2 outputs 384 dimensions."
-        )
 
     return index
 
@@ -88,13 +84,12 @@ async def create_chunks(
     return text_splitter.split_documents(documents)
 
 
-
 async def embed_and_store_chunks(
     chunks: List[Document],
     tenant_id: str = "bro-tenanth+",
     index_name: str = "pdf-rag-index",
 ) -> int:
-    """Generates embeddings and upserts chunks into Pinecone under the tenant's namespace."""
+    """Generates cloud embeddings and upserts chunks into Pinecone under the tenant's namespace."""
     if not chunks:
         return 0
 
@@ -104,12 +99,12 @@ async def embed_and_store_chunks(
     for chunk in chunks:
         chunk.metadata["tenant_id"] = tenant_id
 
-    # Store vectors inside a tenant-specific namespace or with metadata filtering
+    # Store vectors inside a tenant-specific namespace
     vector_store = PineconeVectorStore(
         index_name=index_name,
         embedding=embedding_model,
         pinecone_api_key=settings.PINECONE_API_KEY,
-        namespace=tenant_id,  # Isolates vectors into Pinecone namespaces per tenant
+        namespace=tenant_id,
     )
 
     ids = await vector_store.aadd_documents(chunks)
