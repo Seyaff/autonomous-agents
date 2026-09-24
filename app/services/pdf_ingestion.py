@@ -5,13 +5,13 @@ from pinecone import Pinecone
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_pinecone import PineconeVectorStore
+from langchain_pinecone import PineconeEmbeddings, PineconeVectorStore
 from core.settings import settings
 
-# Global embedding model (384 dimensions)
-embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+# Global cloud-based embedding model (No local PyTorch/HuggingFace overhead)
+embedding_model = PineconeEmbeddings(
+    model="multilingual-e5-large",
+    pinecone_api_key=settings.PINECONE_API_KEY,
 )
 
 pc = Pinecone(api_key=settings.PINECONE_API_KEY)
