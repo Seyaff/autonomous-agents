@@ -1,85 +1,32 @@
 import uuid
+import logging
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 from pymongo.errors import PyMongoError
+
 from core.database import get_database
+from core.settings import settings
+from core.events import broadcast_order_update
+from memory.customer_memory import update_customer_profile
+from services.pdf_ingestion import embedding_model
 from langchain_pinecone import PineconeVectorStore
 
-@tool
-async def create_order_tool(
-    tenant_id: str,
-    customer_phone: str,
-    delivery_address: str,
-    items: List[dict],
-    total_amount: float,
-    payment_method: str = "cod",
-    customer_notes: Optional[str] = None
-) -> str:
-    """Creates and saves a new customer order to the database.
+logger = logging.getLogger(__name__)
 
-    Args:
-        tenant_id: The unique identifier for the tenant.
-        customer_phone: Customer's contact phone number.
-        delivery_address: Destination address for delivery.
-        items: List of ordered items. Each dict MUST contain 'name', 'quantity', and 'price' keys.
-               Example: [{"name": "Pepperoni Pizza", "quantity": 1, "price": 12.50}]
-        total_amount: Calculated total cost of the order.
-        payment_method: Chosen payment method (e.g. "cod", "card"). Default is "cod".
-        customer_notes: Optional delivery instructions or notes.
+
+@tool
+async def search_uploaded_documents(query: str, config: RunnableConfig) -> str:
+    """Searches the restaurant's uploaded menus, pricing sheets, deals, and policies for factual answers.
+    ALWAYS call this tool first before answering customer questions about food, deals, prices, or policies.
     """
-    try:
-        db = get_database()
-        
-        # Format and validate items list
-        formatted_items = []
-        for item in items:
-            formatted_items.append({
-                "name": str(item.get("name", "Unknown Item")),
-                "quantity": int(item.get("quantity", 1)),
-                "price": float(item.get("price", 0.0)),
-                "notes": item.get("notes")
-            })
-
-        order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
-
-        order_document = {
-            "order_id": order_id,
-            "tenant_id": tenant_id,
-            "customer_phone": customer_phone,
-            "delivery_address": delivery_address,
-            "items": formatted_items,
-            "total_amount": float(total_amount),
-            "payment_method": payment_method,
-            "customer_notes": customer_notes,
-            "status": "pending",
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc)
-        }
-
-        result = await db["orders"].insert_one(order_document)
-
-        if result.inserted_id:
-            return f"Order placed successfully! Reference ID: {order_id}. Total: ${total_amount:.2f}."
-        
-        return "Could not record order in database."
-
-    except PyMongoError as e:
-        return f"Database error: {str(e)}"
-    except Exception as e:
-        return f"Failed to create order: {str(e)}"
-    
-    
-@tool
-async def search_uploaded_documents(query: str, config: dict) -> str:
-    """Searches uploaded PDFs, live menus, pricing sheets, and policies for contextual answers."""
-    # Retrieve tenant_id dynamically from agent execution config
-    tenant_id = config.get("configurable", {}).get("thread_id")
+    configurable = config.get("configurable", {})
+    tenant_id = configurable.get("tenant_id")
     if not tenant_id:
-        return "Tenant session missing. Cannot query knowledge base."
+        return "System notice: Restaurant tenant ID missing from context. Cannot query menu."
 
     try:
-        # Target Pinecone vector store using caller's namespace
         vector_store = PineconeVectorStore(
             index_name="pdf-rag-index",
             embedding=embedding_model,
@@ -89,15 +36,279 @@ async def search_uploaded_documents(query: str, config: dict) -> str:
 
         results = await vector_store.asimilarity_search(query=query, k=4)
         if not results:
-            return "No matching details found in uploaded documents or live menus."
+            return "No matching details found in the restaurant menu or policies."
 
         formatted_chunks = []
         for doc in results:
-            source = doc.metadata.get("source", "PDF Document")
+            source = doc.metadata.get("source", "Menu Document")
             page = doc.metadata.get("page", 1)
             formatted_chunks.append(f"[Source: {source} (Page {page})]\n{doc.page_content}")
 
         return "\n\n---\n\n".join(formatted_chunks)
 
     except Exception as e:
+        logger.error(f"Pinecone search error for tenant {tenant_id}: {e}")
         return f"Error retrieving knowledge base details: {str(e)}"
+
+
+@tool
+async def create_order_tool(
+    delivery_address: str,
+    items: List[Dict[str, Any]],
+    total_amount: float,
+    payment_method: str = "cod",
+    customer_notes: Optional[str] = None,
+    customer_name: Optional[str] = None,
+    config: RunnableConfig = None
+) -> str:
+    """Creates and saves a new customer order to the database.
+    
+    Args:
+        delivery_address: Destination delivery address provided by the customer.
+        items: List of ordered dishes/items. Each dict MUST contain 'name', 'quantity', and 'price'.
+               Example: [{"name": "Chicken Biryani", "quantity": 2, "price": 14.0}]
+        total_amount: Final calculated total cost for the customer.
+        payment_method: Payment method chosen by customer ('cod', 'card', 'cash'). Default is 'cod'.
+        customer_notes: Optional special instructions (e.g. 'extra spicy', 'no onions').
+        customer_name: Optional customer name if provided.
+    """
+    configurable = config.get("configurable", {}) if config else {}
+    tenant_id = configurable.get("tenant_id", "default_tenant")
+    customer_phone = configurable.get("customer_phone", "unknown_customer")
+
+    try:
+        db = get_database()
+        order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+
+        formatted_items = []
+        item_names = []
+        for item in items:
+            name = str(item.get("name", "Unknown Item"))
+            qty = int(item.get("quantity", 1))
+            price = float(item.get("price", 0.0))
+            formatted_items.append({
+                "name": name,
+                "quantity": qty,
+                "price": price,
+                "notes": item.get("notes")
+            })
+            item_names.append(name)
+
+        now = datetime.now(timezone.utc)
+        order_document = {
+            "order_id": order_id,
+            "tenant_id": tenant_id,
+            "customer_phone": customer_phone,
+            "customer_name": customer_name,
+            "delivery_address": delivery_address,
+            "items": formatted_items,
+            "total_amount": float(total_amount),
+            "payment_method": payment_method,
+            "customer_notes": customer_notes,
+            "status": "pending",  # pending, accepted, preparing, out_for_delivery, delivered, cancelled
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        result = await db["orders"].insert_one(order_document)
+
+        if result.inserted_id:
+            order_document["_id"] = str(result.inserted_id)
+            # Update customer's long-term profile
+            try:
+                await update_customer_profile(
+                    tenant_id=tenant_id,
+                    customer_phone=customer_phone,
+                    name=customer_name,
+                    delivery_address=delivery_address,
+                    notes=customer_notes,
+                    order_amount=float(total_amount),
+                    favorite_items=item_names,
+                )
+            except Exception as pe:
+                logger.warning(f"Could not update customer profile: {pe}")
+
+            # Push real-time event to owner dashboard
+            try:
+                await broadcast_order_update(
+                    tenant_id=tenant_id,
+                    event_type="order.created",
+                    order_data=order_document
+                )
+            except Exception as be:
+                logger.warning(f"Could not broadcast order update: {be}")
+
+            items_summary = ", ".join([f"{i['quantity']}x {i['name']}" for i in formatted_items])
+            return (
+                f"Order placed successfully! Reference ID: {order_id}.\n"
+                f"Items: {items_summary}\n"
+                f"Total Amount: ${total_amount:.2f}\n"
+                f"Delivery Address: {delivery_address}\n"
+                f"Payment Method: {payment_method.upper()}\n"
+                f"Status: PENDING confirmation by the restaurant."
+            )
+
+        return "Database error: Could not record order in database."
+
+    except PyMongoError as e:
+        logger.error(f"PyMongo error in create_order_tool: {e}")
+        return f"Database error creating order: {str(e)}"
+    except Exception as e:
+        logger.error(f"Unexpected error in create_order_tool: {e}")
+        return f"Failed to place order: {str(e)}"
+
+
+@tool
+async def get_order_status_tool(
+    order_id: Optional[str] = None,
+    config: RunnableConfig = None
+) -> str:
+    """Checks the status of the customer's current or recent orders.
+    
+    Args:
+        order_id: Specific Order ID (e.g. 'ORD-A1B2C3D4'). If omitted, retrieves customer's latest order.
+    """
+    configurable = config.get("configurable", {}) if config else {}
+    tenant_id = configurable.get("tenant_id")
+    customer_phone = configurable.get("customer_phone")
+
+    try:
+        db = get_database()
+        query: Dict[str, Any] = {"tenant_id": tenant_id}
+        if order_id:
+            query["order_id"] = order_id.strip()
+        elif customer_phone:
+            query["customer_phone"] = customer_phone
+        else:
+            return "Cannot retrieve order without customer phone or order reference ID."
+
+        order = await db["orders"].find_one(query, sort=[("created_at", -1)])
+        if not order:
+            return f"No matching order found for {order_id or customer_phone}."
+
+        ref = order.get("order_id")
+        status = order.get("status", "pending").upper()
+        total = order.get("total_amount", 0.0)
+        items = order.get("items", [])
+        items_summary = ", ".join([f"{i.get('quantity', 1)}x {i.get('name', 'item')}" for i in items])
+        address = order.get("delivery_address", "Pickup/Takeaway")
+        created = order.get("created_at")
+        time_str = created.strftime("%Y-%m-%d %H:%M UTC") if isinstance(created, datetime) else "Recently"
+
+        return (
+            f"Order Details for {ref}:\n"
+            f"- Status: {status}\n"
+            f"- Placed At: {time_str}\n"
+            f"- Items: {items_summary}\n"
+            f"- Total: ${total:.2f}\n"
+            f"- Delivery To: {address}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error querying order status: {e}")
+        return f"Could not fetch order status: {str(e)}"
+
+
+@tool
+async def update_order_tool(
+    order_id: str,
+    new_delivery_address: Optional[str] = None,
+    additional_notes: Optional[str] = None,
+    config: RunnableConfig = None
+) -> str:
+    """Updates an existing order's delivery address or special instructions.
+    Orders can only be modified if they are still in 'pending' or 'accepted' status.
+    
+    Args:
+        order_id: The Reference ID of the order to modify.
+        new_delivery_address: Optional updated delivery location.
+        additional_notes: Optional new instructions or notes.
+    """
+    configurable = config.get("configurable", {}) if config else {}
+    tenant_id = configurable.get("tenant_id")
+
+    try:
+        db = get_database()
+        order = await db["orders"].find_one({"order_id": order_id.strip(), "tenant_id": tenant_id})
+        if not order:
+            return f"Order '{order_id}' not found."
+
+        current_status = order.get("status", "pending")
+        if current_status not in ["pending", "accepted"]:
+            return f"Order '{order_id}' cannot be modified because its status is already '{current_status.upper()}'."
+
+        update_fields: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
+        if new_delivery_address:
+            update_fields["delivery_address"] = new_delivery_address
+        if additional_notes:
+            update_fields["customer_notes"] = additional_notes
+
+        await db["orders"].update_one({"order_id": order_id.strip()}, {"$set": update_fields})
+
+        order.update(update_fields)
+        if "_id" in order:
+            order["_id"] = str(order["_id"])
+
+        await broadcast_order_update(
+            tenant_id=tenant_id,
+            event_type="order.updated",
+            order_data=order
+        )
+
+        return f"Order '{order_id}' has been updated successfully."
+
+    except Exception as e:
+        logger.error(f"Error updating order: {e}")
+        return f"Could not update order: {str(e)}"
+
+
+@tool
+async def cancel_order_tool(
+    order_id: str,
+    reason: Optional[str] = None,
+    config: RunnableConfig = None
+) -> str:
+    """Cancels a customer order if it has not yet left the kitchen.
+    
+    Args:
+        order_id: The Reference ID of the order to cancel.
+        reason: Optional reason for cancellation.
+    """
+    configurable = config.get("configurable", {}) if config else {}
+    tenant_id = configurable.get("tenant_id")
+
+    try:
+        db = get_database()
+        order = await db["orders"].find_one({"order_id": order_id.strip(), "tenant_id": tenant_id})
+        if not order:
+            return f"Order '{order_id}' not found."
+
+        current_status = order.get("status", "pending")
+        if current_status in ["out_for_delivery", "delivered"]:
+            return f"Cannot cancel order '{order_id}'. It is already {current_status.upper()}."
+
+        if current_status == "cancelled":
+            return f"Order '{order_id}' is already cancelled."
+
+        update_fields = {
+            "status": "cancelled",
+            "cancellation_reason": reason or "Customer requested cancellation",
+            "updated_at": datetime.now(timezone.utc)
+        }
+        await db["orders"].update_one({"order_id": order_id.strip()}, {"$set": update_fields})
+
+        order.update(update_fields)
+        if "_id" in order:
+            order["_id"] = str(order["_id"])
+
+        await broadcast_order_update(
+            tenant_id=tenant_id,
+            event_type="order.cancelled",
+            order_data=order
+        )
+
+        return f"Order '{order_id}' has been cancelled successfully."
+
+    except Exception as e:
+        logger.error(f"Error cancelling order: {e}")
+        return f"Could not cancel order: {str(e)}"

@@ -34,15 +34,15 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <QueryProvider>
-          <ThemeProvider attribute="class"
+          {/* <ThemeProvider attribute="class"
             defaultTheme="system"
             enableSystem
-            disableTransitionOnChange>
+            disableTransitionOnChange> */}
             <TooltipProvider>
               {children}
               <Toaster />
             </TooltipProvider>
-          </ThemeProvider>
+          {/* </ThemeProvider> */}
         </QueryProvider>
       </body>
     </html>

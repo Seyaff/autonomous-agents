@@ -26,43 +26,31 @@ const data = {
   },
   navMain: [
     {
-      title: "Dashboard",
-      url: "#",
+      title: "Restaurant Dashboard",
+      url: "/dashboard",
       icon: (
-        <LayoutDashboardIcon
-        />
+        <LayoutDashboardIcon />
       ),
     },
     {
-      title: "Lifecycle",
-      url: "#",
+      title: "Founder Growth Engine",
+      url: "/founder",
       icon: (
-        <ListIcon
-        />
+        <ChartBarIcon />
       ),
     },
     {
-      title: "Analytics",
-      url: "#",
+      title: "Restaurant Onboarding",
+      url: "/onboarding",
       icon: (
-        <ChartBarIcon
-        />
+        <ListIcon />
       ),
     },
     {
-      title: "Projects",
-      url: "#",
+      title: "Settings & Knowledge",
+      url: "/settings",
       icon: (
-        <FolderIcon
-        />
-      ),
-    },
-    {
-      title: "Team",
-      url: "#",
-      icon: (
-        <UsersIcon
-        />
+        <FolderIcon />
       ),
     },
   ],

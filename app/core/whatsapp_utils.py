@@ -1,13 +1,15 @@
 import logging
+from typing import Optional
 import httpx
 from core.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-async def download_whatsapp_media(media_id: str) -> bytes:
+async def download_whatsapp_media(media_id: str, token: Optional[str] = None) -> bytes:
     """Fetches media URL using Meta's media_id and returns raw bytes from memory."""
-    headers = {"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"}
+    auth_token = token or settings.WHATSAPP_TOKEN
+    headers = {"Authorization": f"Bearer {auth_token}"}
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         # Step A: Resolve media ID to download URL
@@ -30,11 +32,21 @@ async def download_whatsapp_media(media_id: str) -> bytes:
         return download_resp.content
 
 
-async def send_whatsapp_message(to_phone: str, text: str) -> bool:
-    """Dispatches outbound text responses back to the user via Meta's WhatsApp Cloud API."""
-    url = f"https://graph.facebook.com/v19.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+async def send_whatsapp_message(
+    to_phone: str,
+    text: str,
+    token: Optional[str] = None,
+    phone_number_id: Optional[str] = None
+) -> bool:
+    """Dispatches outbound text responses back to the user via Meta's WhatsApp Cloud API.
+    Supports dynamic multi-tenant tokens and phone number IDs.
+    """
+    auth_token = token or settings.WHATSAPP_TOKEN
+    phone_id = phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {auth_token}",
         "Content-Type": "application/json",
     }
     payload = {

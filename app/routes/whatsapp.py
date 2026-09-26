@@ -1,50 +1,17 @@
 import logging
-from typing import Optional
-import httpx
-from fastapi import APIRouter, Request, Query, Response, status, BackgroundTasks
-from langchain_core.messages import HumanMessage
-from core.whatsapp_utils import download_whatsapp_media, send_whatsapp_message
-from services.pdf_ingestion import process_and_store_pdf_bytes
-
+from typing import Optional, Dict, Any
+from fastapi import APIRouter, Request, Query, Response, status, BackgroundTasks, Depends
 
 from core.settings import settings
-from agents.customer_support.agent import master_agent
+from core.database import get_database
+from core.whatsapp_utils import download_whatsapp_media, send_whatsapp_message
+from services.pdf_ingestion import process_and_store_pdf_bytes
+from agents.customer_support.agent import run_customer_support_turn
 
 logger = logging.getLogger(__name__)
 
 whatsapp_router = APIRouter(prefix="/whatsapp", tags=["WhatsApp Webhook"])
 alias_router = APIRouter(prefix="/whatsapp/webhook", tags=["WhatsApp Webhook"])
-
-
-async def send_whatsapp_message(to_phone: str, text: str) -> bool:
-    """Dispatches outbound text responses back to the user via Meta's WhatsApp Cloud API."""
-    url = f"https://graph.facebook.com/v19.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_phone,
-        "type": "text",
-        "text": {"preview_url": False, "body": text},
-    }
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            response = await client.post(url, json=payload, headers=headers)
-            if response.status_code in [200, 201]:
-                logger.info(f"Successfully sent WhatsApp message to {to_phone}")
-                return True
-            else:
-                logger.error(
-                    f"Meta WhatsApp API error ({response.status_code}): {response.text}"
-                )
-                return False
-        except httpx.RequestError as exc:
-            logger.error(f"HTTP request error sending WhatsApp message: {exc}")
-            return False
 
 
 @whatsapp_router.get("")
@@ -61,53 +28,57 @@ async def verify_meta_webhook(
     return Response(content="Verification token mismatch", status_code=status.HTTP_403_FORBIDDEN)
 
 
-async def handle_inbound_pdf(media_id: str, filename: str, sender_phone: str):
-    """Background task to download PDF, split chunks, upsert vectors, and notify user."""
+async def handle_inbound_pdf(
+    media_id: str,
+    filename: str,
+    sender_phone: str,
+    tenant_id: str,
+    token: Optional[str] = None,
+    phone_number_id: Optional[str] = None,
+):
+    """Background task to download PDF, split chunks, upsert vectors into tenant Pinecone namespace, and notify user."""
     try:
         await send_whatsapp_message(
             to_phone=sender_phone,
-            text=f"📄 Processing '{filename}'... I am reading and indexing your document.",
+            text=f"📄 Processing '{filename}'... I am indexing your restaurant menu.",
+            token=token,
+            phone_number_id=phone_number_id,
         )
 
-        file_bytes = await download_whatsapp_media(media_id)
+        file_bytes = await download_whatsapp_media(media_id, token=token)
 
-        # Uses sender phone number as the isolated Pinecone namespace/tenant_id
+        # Uses isolated tenant_id namespace in Pinecone
         num_chunks = await process_and_store_pdf_bytes(
             file_bytes=file_bytes,
             filename=filename,
-            tenant_id=sender_phone,
+            tenant_id=tenant_id,
         )
 
         if num_chunks > 0:
-            reply = f"✅ Finished indexing '{filename}' ({num_chunks} chunks). You can now ask me questions about it!"
+            reply = f"✅ Finished indexing '{filename}' ({num_chunks} chunks). Customers can now query your dishes, deals, and prices!"
         else:
-            reply = f"⚠️ Could not extract readable text from '{filename}'. Please ensure it is not a scanned image PDF."
+            reply = f"⚠️ Could not extract readable text from '{filename}'. Please ensure it is not an image-only scan."
 
     except Exception as e:
-        logger.error(f"Error executing PDF ingestion background task for {sender_phone}: {e}")
-        reply = "❌ An error occurred while processing your PDF document."
+        logger.error(f"Error executing PDF ingestion for tenant {tenant_id}: {e}")
+        reply = "❌ An error occurred while processing your document."
 
-    await send_whatsapp_message(to_phone=sender_phone, text=reply)
-
-
-@whatsapp_router.get("")
-@alias_router.get("")
-async def verify_meta_webhook(
-    hub_mode: Optional[str] = Query(None, alias="hub.mode"),
-    hub_challenge: Optional[str] = Query(None, alias="hub.challenge"),
-    hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
-):
-    """Meta Webhook handshake verification endpoint."""
-    if hub_mode == "subscribe" and hub_verify_token == settings.WHATSAPP_VERIFY_TOKEN:
-        logger.info("Meta webhook verification successful.")
-        return Response(content=hub_challenge, media_type="text/plain")
-    return Response(content="Verification token mismatch", status_code=status.HTTP_403_FORBIDDEN)
+    await send_whatsapp_message(
+        to_phone=sender_phone,
+        text=reply,
+        token=token,
+        phone_number_id=phone_number_id,
+    )
 
 
 @whatsapp_router.post("")
 @alias_router.post("")
-async def receive_meta_webhook(request: Request, background_tasks: BackgroundTasks):
-    """Receive inbound WhatsApp webhooks and route between document parsing and Agent invocation."""
+async def receive_meta_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    database=Depends(get_database)
+):
+    """Receive inbound WhatsApp webhooks, resolve tenant dynamically, and invoke customer agent."""
     try:
         body = await request.json()
     except Exception:
@@ -117,14 +88,37 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
         entry = body.get("entry", [])[0]
         changes = entry.get("changes", [])[0]
         value = changes.get("value", {})
+        metadata = value.get("metadata", {})
         messages = value.get("messages", [])
+
+        # Extract Meta metadata for multi-tenant routing
+        inbound_phone_id = metadata.get("phone_number_id")
+        display_number = metadata.get("display_phone_number")
+
+        # Resolve tenant dynamically from DB
+        tenant = None
+        if inbound_phone_id:
+            tenant = await database["tenants"].find_one({"phone_number_id": inbound_phone_id})
+        if not tenant and display_number:
+            tenant = await database["tenants"].find_one({"display_phone_number": display_number})
+        if not tenant:
+            # Fallback to first available tenant or default
+            tenant = await database["tenants"].find_one({})
+
+        if not tenant:
+            logger.warning("No tenant configured in database for inbound WhatsApp message.")
+            return {"status": "no_tenant_configured"}
+
+        tenant_id = tenant.get("tenant_id", "default_tenant")
+        tenant_token = tenant.get("whatsapp_access_token") or settings.WHATSAPP_TOKEN
+        tenant_phone_id = tenant.get("phone_number_id") or settings.WHATSAPP_PHONE_NUMBER_ID
 
         if messages:
             msg = messages[0]
             sender_phone = msg.get("from")
             msg_type = msg.get("type")
 
-            # --- ROUTE 1: INBOUND DOCUMENT (PDF / MENU) ---
+            # --- ROUTE 1: INBOUND DOCUMENT (PDF / MENU UPLOAD) ---
             if msg_type == "document":
                 doc_meta = msg.get("document", {})
                 mime_type = doc_meta.get("mime_type", "")
@@ -132,44 +126,40 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
                 filename = doc_meta.get("filename", "document.pdf")
 
                 if "pdf" in mime_type and media_id and sender_phone:
-                    # Offload work to background task to acknowledge Meta within 3 seconds
                     background_tasks.add_task(
                         handle_inbound_pdf,
                         media_id=media_id,
                         filename=filename,
                         sender_phone=sender_phone,
+                        tenant_id=tenant_id,
+                        token=tenant_token,
+                        phone_number_id=tenant_phone_id,
                     )
                     return {"status": "success"}
 
-            # --- ROUTE 2: INBOUND TEXT QUERY ---
+            # --- ROUTE 2: INBOUND TEXT / CONVERSATION ---
             user_payload = None
             if msg_type == "text":
                 user_payload = msg.get("text", {}).get("body", "")
 
             if user_payload and sender_phone:
-                # Binds session memory to caller's phone number
-                config = {"configurable": {"thread_id": sender_phone}}
+                logger.info(f"Incoming message from [{sender_phone}] for tenant [{tenant_id}]: {user_payload}")
 
-                # Asynchronously invoke master_agent workflow
-                agent_result = await master_agent.ainvoke(
-                    {"messages": [HumanMessage(content=user_payload)]},
-                    config=config,
+                reply_text = await run_customer_support_turn(
+                    db=database,
+                    tenant=tenant,
+                    customer_phone=sender_phone,
+                    user_message=user_payload,
                 )
 
-                # Extract last message from agent response
-                last_message = agent_result["messages"][-1]
-                if isinstance(last_message.content, list):
-                    reply_text = "".join(
-                        block.get("text", "")
-                        for block in last_message.content
-                        if isinstance(block, dict)
-                    )
-                else:
-                    reply_text = last_message.content or ""
-
                 if reply_text:
-                    logger.info(f"Agent reply to [{sender_phone}]: {reply_text}")
-                    await send_whatsapp_message(to_phone=sender_phone, text=reply_text)
+                    logger.info(f"Agent reply to [{sender_phone}] for tenant [{tenant_id}]: {reply_text}")
+                    await send_whatsapp_message(
+                        to_phone=sender_phone,
+                        text=reply_text,
+                        token=tenant_token,
+                        phone_number_id=tenant_phone_id,
+                    )
 
     except (IndexError, AttributeError, KeyError) as e:
         logger.error(f"Error parsing webhook payload: {e}")
