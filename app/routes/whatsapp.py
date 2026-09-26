@@ -15,7 +15,9 @@ alias_router = APIRouter(prefix="/whatsapp/webhook", tags=["WhatsApp Webhook"])
 
 
 @whatsapp_router.get("")
+@whatsapp_router.get("/")
 @alias_router.get("")
+@alias_router.get("/")
 async def verify_meta_webhook(
     hub_mode: Optional[str] = Query(None, alias="hub.mode"),
     hub_challenge: Optional[str] = Query(None, alias="hub.challenge"),
@@ -72,7 +74,9 @@ async def handle_inbound_pdf(
 
 
 @whatsapp_router.post("")
+@whatsapp_router.post("/")
 @alias_router.post("")
+@alias_router.post("/")
 async def receive_meta_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
