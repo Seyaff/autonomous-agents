@@ -41,8 +41,8 @@ async def send_whatsapp_message(
     """Dispatches outbound text responses back to the user via Meta's WhatsApp Cloud API.
     Supports dynamic multi-tenant tokens and phone number IDs.
     """
-    auth_token = token or settings.WHATSAPP_TOKEN
-    phone_id = phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+    auth_token = settings.WHATSAPP_TOKEN
+    phone_id = settings.WHATSAPP_PHONE_NUMBER_ID
 
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     headers = {

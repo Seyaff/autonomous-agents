@@ -35,3 +35,43 @@ def get_database():
     if db_container.db is None:
         raise RuntimeError("Database is not initialized. Ensure app lifespan has run.")
     return db_container.db
+
+
+async def ensure_webhook_indexes():
+    """
+    Idempotent startup hook. Creates the unique index that powers webhook
+    dedup, plus a TTL index to auto-expire old entries after Meta's retry window.
+    """
+    db = db_container.db
+    if db is None:
+        raise RuntimeError("Database not connected.")
+
+    await db["processed_messages"].create_index(
+        "message_id", unique=True, name="uniq_message_id"
+    )
+    await db["processed_messages"].create_index(
+        "received_at", expireAfterSeconds=7 * 24 * 3600, name="ttl_received_at"
+    )
+    print("[webhook] processed_messages indexes ensured.")
+
+
+async def verify_webhook_indexes():
+    """Logs whether the unique index exists. Useful for smoke-testing at startup."""
+    db = db_container.db
+    info = await db["processed_messages"].index_information()
+
+    has_unique = False
+    for name, spec in info.items():
+        keys = [k[0] for k in spec.get("key", [])]
+        if "message_id" in keys and spec.get("unique"):
+            has_unique = True
+            break
+
+    if has_unique:
+        print("[webhook] ✅ unique index on processed_messages.message_id exists")
+    else:
+        print("[webhook] ❌ MISSING unique index on processed_messages.message_id "
+              "— dedup will NOT work")
+        print(f"[webhook] current indexes: {list(info.keys())}")
+
+    return has_unique

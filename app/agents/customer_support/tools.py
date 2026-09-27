@@ -16,6 +16,8 @@ from langchain_pinecone import PineconeVectorStore
 logger = logging.getLogger(__name__)
 
 
+from services.knowledge_ingestion import search_tenant_knowledge
+
 @tool
 async def search_uploaded_documents(query: str, config: RunnableConfig) -> str:
     """Searches the restaurant's uploaded menus, pricing sheets, deals, and policies for factual answers.
@@ -26,29 +28,7 @@ async def search_uploaded_documents(query: str, config: RunnableConfig) -> str:
     if not tenant_id:
         return "System notice: Restaurant tenant ID missing from context. Cannot query menu."
 
-    try:
-        vector_store = PineconeVectorStore(
-            index_name="pdf-rag-index",
-            embedding=embedding_model,
-            pinecone_api_key=settings.PINECONE_API_KEY,
-            namespace=tenant_id,
-        )
-
-        results = await vector_store.asimilarity_search(query=query, k=4)
-        if not results:
-            return "No matching details found in the restaurant menu or policies."
-
-        formatted_chunks = []
-        for doc in results:
-            source = doc.metadata.get("source", "Menu Document")
-            page = doc.metadata.get("page", 1)
-            formatted_chunks.append(f"[Source: {source} (Page {page})]\n{doc.page_content}")
-
-        return "\n\n---\n\n".join(formatted_chunks)
-
-    except Exception as e:
-        logger.error(f"Pinecone search error for tenant {tenant_id}: {e}")
-        return f"Error retrieving knowledge base details: {str(e)}"
+    return await search_tenant_knowledge(query=query, tenant_id=tenant_id, top_k=4)
 
 
 @tool

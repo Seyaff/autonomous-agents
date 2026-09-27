@@ -1,6 +1,17 @@
 import logging
+from datetime import datetime
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, Request, Query, Response, status, BackgroundTasks, Depends
+
+from fastapi import (
+    APIRouter,
+    Request,
+    Query,
+    Response,
+    status,
+    BackgroundTasks,
+    Depends,
+)
+from pymongo.errors import DuplicateKeyError
 
 from core.settings import settings
 from core.database import get_database
@@ -14,6 +25,9 @@ whatsapp_router = APIRouter(prefix="/whatsapp", tags=["WhatsApp Webhook"])
 alias_router = APIRouter(prefix="/whatsapp/webhook", tags=["WhatsApp Webhook"])
 
 
+# ---------------------------------------------------------------------------
+# Meta webhook handshake
+# ---------------------------------------------------------------------------
 @whatsapp_router.get("")
 @whatsapp_router.get("/")
 @alias_router.get("")
@@ -21,15 +35,21 @@ alias_router = APIRouter(prefix="/whatsapp/webhook", tags=["WhatsApp Webhook"])
 async def verify_meta_webhook(
     hub_mode: Optional[str] = Query(None, alias="hub.mode"),
     hub_challenge: Optional[str] = Query(None, alias="hub.challenge"),
-    hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token")
+    hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
 ):
     """Meta Webhook handshake verification endpoint."""
     if hub_mode == "subscribe" and hub_verify_token == settings.WHATSAPP_VERIFY_TOKEN:
         logger.info("Meta webhook verification successful.")
         return Response(content=hub_challenge, media_type="text/plain")
-    return Response(content="Verification token mismatch", status_code=status.HTTP_403_FORBIDDEN)
+    return Response(
+        content="Verification token mismatch",
+        status_code=status.HTTP_403_FORBIDDEN,
+    )
 
 
+# ---------------------------------------------------------------------------
+# Background handlers (run AFTER response is sent)
+# ---------------------------------------------------------------------------
 async def handle_inbound_pdf(
     media_id: str,
     filename: str,
@@ -38,7 +58,7 @@ async def handle_inbound_pdf(
     token: Optional[str] = None,
     phone_number_id: Optional[str] = None,
 ):
-    """Background task to download PDF, split chunks, upsert vectors into tenant Pinecone namespace, and notify user."""
+    """Download PDF, chunk, embed into tenant's Pinecone namespace, notify user."""
     try:
         await send_whatsapp_message(
             to_phone=sender_phone,
@@ -49,7 +69,6 @@ async def handle_inbound_pdf(
 
         file_bytes = await download_whatsapp_media(media_id, token=token)
 
-        # Uses isolated tenant_id namespace in Pinecone
         num_chunks = await process_and_store_pdf_bytes(
             file_bytes=file_bytes,
             filename=filename,
@@ -57,9 +76,15 @@ async def handle_inbound_pdf(
         )
 
         if num_chunks > 0:
-            reply = f"✅ Finished indexing '{filename}' ({num_chunks} chunks). Customers can now query your dishes, deals, and prices!"
+            reply = (
+                f"✅ Finished indexing '{filename}' ({num_chunks} chunks). "
+                f"Customers can now query your dishes, deals, and prices!"
+            )
         else:
-            reply = f"⚠️ Could not extract readable text from '{filename}'. Please ensure it is not an image-only scan."
+            reply = (
+                f"⚠️ Could not extract readable text from '{filename}'. "
+                f"Please ensure it is not an image-only scan."
+            )
 
     except Exception as e:
         logger.error(f"Error executing PDF ingestion for tenant {tenant_id}: {e}")
@@ -73,6 +98,45 @@ async def handle_inbound_pdf(
     )
 
 
+async def handle_text_turn(
+    database,
+    tenant: Dict[str, Any],
+    tenant_id: str,
+    sender_phone: str,
+    user_payload: str,
+    tenant_token: Optional[str],
+    tenant_phone_id: Optional[str],
+):
+    """Background task for an inbound text message."""
+    try:
+        logger.info(
+            f"Incoming message from [{sender_phone}] for tenant [{tenant_id}]: {user_payload}"
+        )
+
+        reply_text = await run_customer_support_turn(
+            db=database,
+            tenant=tenant,
+            customer_phone=sender_phone,
+            user_message=user_payload,
+        )
+
+        if reply_text:
+            logger.info(
+                f"Agent reply to [{sender_phone}] for tenant [{tenant_id}]: {reply_text}"
+            )
+            await send_whatsapp_message(
+                to_phone=sender_phone,
+                text=reply_text,
+                token=tenant_token,
+                phone_number_id=tenant_phone_id,
+            )
+    except Exception as e:
+        logger.exception(f"Background text turn failed for {sender_phone}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Main webhook receiver
+# ---------------------------------------------------------------------------
 @whatsapp_router.post("")
 @whatsapp_router.post("/")
 @alias_router.post("")
@@ -80,9 +144,18 @@ async def handle_inbound_pdf(
 async def receive_meta_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
-    database=Depends(get_database)
+    database=Depends(get_database),
 ):
-    """Receive inbound WhatsApp webhooks, resolve tenant dynamically, and invoke customer agent."""
+    """
+    Receive inbound WhatsApp webhooks.
+
+    Design:
+      - Parse → resolve tenant → dedup → enqueue → return 200 immediately.
+      - All slow work (LLM, media download) runs in BackgroundTasks.
+      - Dedup on `message.id` (wamid) via a unique Mongo index so Meta's
+        retries (which fire when we're slow) are silently dropped.
+    """
+    # ---- 1. Parse ----
     try:
         body = await request.json()
     except Exception:
@@ -95,78 +168,100 @@ async def receive_meta_webhook(
         metadata = value.get("metadata", {})
         messages = value.get("messages", [])
 
-        # Extract Meta metadata for multi-tenant routing
         inbound_phone_id = metadata.get("phone_number_id")
         display_number = metadata.get("display_phone_number")
-
-        # Resolve tenant dynamically from DB
-        tenant = None
-        if inbound_phone_id:
-            tenant = await database["tenants"].find_one({"phone_number_id": inbound_phone_id})
-        if not tenant and display_number:
-            tenant = await database["tenants"].find_one({"display_phone_number": display_number})
-        if not tenant:
-            # Fallback to first available tenant or default
-            tenant = await database["tenants"].find_one({})
-
-        if not tenant:
-            logger.warning("No tenant configured in database for inbound WhatsApp message.")
-            return {"status": "no_tenant_configured"}
-
-        tenant_id = tenant.get("tenant_id", "default_tenant")
-        tenant_token = tenant.get("whatsapp_access_token") or settings.WHATSAPP_TOKEN
-        tenant_phone_id = tenant.get("phone_number_id") or settings.WHATSAPP_PHONE_NUMBER_ID
-
-        if messages:
-            msg = messages[0]
-            sender_phone = msg.get("from")
-            msg_type = msg.get("type")
-
-            # --- ROUTE 1: INBOUND DOCUMENT (PDF / MENU UPLOAD) ---
-            if msg_type == "document":
-                doc_meta = msg.get("document", {})
-                mime_type = doc_meta.get("mime_type", "")
-                media_id = doc_meta.get("id")
-                filename = doc_meta.get("filename", "document.pdf")
-
-                if "pdf" in mime_type and media_id and sender_phone:
-                    background_tasks.add_task(
-                        handle_inbound_pdf,
-                        media_id=media_id,
-                        filename=filename,
-                        sender_phone=sender_phone,
-                        tenant_id=tenant_id,
-                        token=tenant_token,
-                        phone_number_id=tenant_phone_id,
-                    )
-                    return {"status": "success"}
-
-            # --- ROUTE 2: INBOUND TEXT / CONVERSATION ---
-            user_payload = None
-            if msg_type == "text":
-                user_payload = msg.get("text", {}).get("body", "")
-
-            if user_payload and sender_phone:
-                logger.info(f"Incoming message from [{sender_phone}] for tenant [{tenant_id}]: {user_payload}")
-
-                reply_text = await run_customer_support_turn(
-                    db=database,
-                    tenant=tenant,
-                    customer_phone=sender_phone,
-                    user_message=user_payload,
-                )
-
-                if reply_text:
-                    logger.info(f"Agent reply to [{sender_phone}] for tenant [{tenant_id}]: {reply_text}")
-                    await send_whatsapp_message(
-                        to_phone=sender_phone,
-                        text=reply_text,
-                        token=tenant_token,
-                        phone_number_id=tenant_phone_id,
-                    )
-
     except (IndexError, AttributeError, KeyError) as e:
         logger.error(f"Error parsing webhook payload: {e}")
+        return {"status": "success"}  # always ACK Meta
 
-    # Always respond with 200 OK to prevent Meta from retrying webhooks
+    # ---- 2. Resolve tenant ----
+    tenant = None
+    if inbound_phone_id:
+        tenant = await database["tenants"].find_one({"phone_number_id": inbound_phone_id})
+    if not tenant and display_number:
+        tenant = await database["tenants"].find_one(
+            {"display_phone_number": display_number}
+        )
+    if not tenant:
+        tenant = await database["tenants"].find_one({})
+
+    if not tenant:
+        logger.warning("No tenant configured in database for inbound WhatsApp message.")
+        return {"status": "no_tenant_configured"}
+
+    tenant_id = tenant.get("tenant_id", "default_tenant")
+    tenant_token = settings.WHATSAPP_TOKEN
+    tenant_phone_id = settings.WHATSAPP_PHONE_NUMBER_ID
+
+    # Status updates (delivered/read receipts) have no "messages" key — ignore.
+    if not messages:
+        return {"status": "success"}
+
+    msg = messages[0]
+    sender_phone = msg.get("from")
+    msg_type = msg.get("type")
+    message_id = msg.get("id")  # wamid
+
+    # ---- LOG: every inbound webhook hit ----
+    logger.info(
+        f"[webhook] received msg_id={message_id} from={sender_phone} "
+        f"type={msg_type} tenant={tenant_id}"
+    )
+
+    # ---- 3. DEDUP GATE (atomic — must run before we do any work) ----
+    if message_id:
+        try:
+            await database["processed_messages"].insert_one(
+                {
+                    "message_id": message_id,
+                    "tenant_id": tenant_id,
+                    "sender_phone": sender_phone,
+                    "msg_type": msg_type,
+                    "received_at": datetime.utcnow(),
+                }
+            )
+        except DuplicateKeyError:
+            logger.warning(
+                f"[dedup] Dropped duplicate webhook: msg_id={message_id} "
+                f"from={sender_phone} tenant={tenant_id}"
+            )
+            return {"status": "duplicate_ignored"}
+
+    # ---- 4. Dispatch (never block the ACK) ----
+    if msg_type == "document":
+        doc_meta = msg.get("document", {})
+        mime_type = doc_meta.get("mime_type", "")
+        media_id = doc_meta.get("id")
+        filename = doc_meta.get("filename", "document.pdf")
+
+        if "pdf" in mime_type and media_id and sender_phone:
+            background_tasks.add_task(
+                handle_inbound_pdf,
+                media_id=media_id,
+                filename=filename,
+                sender_phone=sender_phone,
+                tenant_id=tenant_id,
+                token=tenant_token,
+                phone_number_id=tenant_phone_id,
+            )
+
+    elif msg_type == "text":
+        user_payload = msg.get("text", {}).get("body", "")
+        if user_payload and sender_phone:
+            background_tasks.add_task(
+                handle_text_turn,
+                database=database,
+                tenant=tenant,
+                tenant_id=tenant_id,
+                sender_phone=sender_phone,
+                user_payload=user_payload,
+                tenant_token=tenant_token,
+                tenant_phone_id=tenant_phone_id,
+            )
+
+    elif msg_type == "audio":
+        logger.info(f"Audio message from {sender_phone}: {msg}")
+        # TODO: handle audio later
+
+    # ---- 5. ACK in milliseconds ----
     return {"status": "success"}

@@ -6,7 +6,12 @@ from starlette.middleware.sessions import SessionMiddleware
 from core.settings import settings
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.database import connect_to_mongo, close_mongo_connection
+from core.database import (
+    connect_to_mongo,
+    close_mongo_connection,
+    ensure_webhook_indexes,
+    verify_webhook_indexes,
+)
 from routes.tenant import tenant_routes
 from routes.whatsapp import whatsapp_router, alias_router
 from routes.auth import auth_routes
@@ -14,16 +19,21 @@ from routes.user import user_routes
 from routes.orders import order_router
 from routes.analytics import analytics_router
 from routes.founder import founder_router
+from routes.knowledge import knowledge_router
 from routes.websocket import websocket_router
+
+
+
 
 load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
+    await ensure_webhook_indexes()
+    await verify_webhook_indexes()   # optional, remove in prod if noisy
     yield
     await close_mongo_connection()
-
 app = FastAPI(
     title="Autonomous Agent Business Platform",
     description="Multi-tenant autonomous AI operating system for restaurant operations and founder growth.",
@@ -58,6 +68,7 @@ v1_router.include_router(tenant_routes)
 v1_router.include_router(order_router)
 v1_router.include_router(analytics_router)
 v1_router.include_router(founder_router)
+v1_router.include_router(knowledge_router)
 v1_router.include_router(whatsapp_router)
 v1_router.include_router(alias_router)
 

@@ -90,14 +90,30 @@ export default function OnboardingPage() {
       setStep(4)
       return
     }
+
     setLoading(true)
     setError(null)
     try {
-      // In production, upload multipart PDF to /dummy/upload or /tenant/menu-upload
-      setMenuUploaded(true)
-      setStep(4)
+      const formData = new FormData()
+      formData.append("file", pdfFile)
+
+      const res = await API.post("/tenant/upload-menu-pdf", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+
+      console.log(res)
+
+      if (res.data.status === "success") {
+        setMenuUploaded(true)
+        setStep(4)
+      } else {
+        setError(res.data.message || "Failed to index the menu PDF.")
+      }
     } catch (err: any) {
-      setError("Failed to upload menu PDF.")
+      setError(
+        err.response?.data?.detail ||
+        "Failed to upload menu PDF. Please try again."
+      )
     } finally {
       setLoading(false)
     }
@@ -288,7 +304,11 @@ export default function OnboardingPage() {
           <CardFooter className="flex justify-between">
             <Button variant="ghost" onClick={() => setStep(2)}>Back</Button>
             <Button onClick={handleUploadMenuPdf} disabled={loading}>
-              {pdfFile ? "Upload & Continue" : "Skip for Now"}
+              {loading
+                ? "Uploading & indexing..."
+                : pdfFile
+                  ? "Upload & Continue"
+                  : "Skip for Now"}
               <ChevronRight className="size-4 ml-1" />
             </Button>
           </CardFooter>

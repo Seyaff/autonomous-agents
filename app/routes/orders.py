@@ -38,6 +38,7 @@ async def list_orders(
     if status_filter:
         query["status"] = status_filter.lower()
 
+    # ✅ PyMongo async: find() returns a cursor directly (no await needed here)
     cursor = db["orders"].find(query).sort("created_at", -1).skip(skip).limit(limit)
     orders = await cursor.to_list(length=limit)
 
@@ -81,8 +82,11 @@ async def get_orders_summary(
         }
     ]
 
-    results = await db["orders"].aggregate(pipeline).to_list(length=20)
-    
+    # ✅ FIX: aggregate() returns a coroutine in PyMongo async — await it FIRST,
+    # then call .to_list() on the resulting cursor.
+    cursor = await db["orders"].aggregate(pipeline)
+    results = await cursor.to_list(length=20)
+
     total_orders = 0
     total_revenue = 0.0
     pending_count = 0
@@ -92,7 +96,7 @@ async def get_orders_summary(
     for r in results:
         st = r["_id"]
         c = r["count"]
-        rev = r.get("revenue", 0.0)
+        rev = r.get("revenue") or 0.0  # ✅ guard: $sum returns None if no docs match
         total_orders += c
         if st not in ["cancelled"]:
             total_revenue += rev
@@ -120,6 +124,14 @@ async def get_order_by_id(
 ):
     """Retrieves single order details."""
     tenant_id = current_user.get("active_tenant_id")
+    # ✅ FIX: guard against missing tenant_id (prevents cross-tenant leak
+    # where tenant_id=None could match docs missing the field)
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active tenant linked to your account. Please complete onboarding."
+        )
+
     order = await db["orders"].find_one({"order_id": order_id, "tenant_id": tenant_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -138,6 +150,13 @@ async def update_order_status(
 ):
     """Updates order status from the dashboard and broadcasts real-time WebSocket event."""
     tenant_id = current_user.get("active_tenant_id")
+    # ✅ FIX: same tenant guard as above
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active tenant linked to your account. Please complete onboarding."
+        )
+
     order = await db["orders"].find_one({"order_id": order_id, "tenant_id": tenant_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -154,13 +173,17 @@ async def update_order_status(
     if payload.notes:
         update_doc["admin_notes"] = payload.notes
 
-    await db["orders"].update_one({"order_id": order_id}, {"$set": update_doc})
+    # ✅ FIX: scope the update by tenant_id too (defense in depth + better index usage)
+    await db["orders"].update_one(
+        {"order_id": order_id, "tenant_id": tenant_id},
+        {"$set": update_doc}
+    )
 
     order.update(update_doc)
     if "_id" in order:
         order["_id"] = str(order["_id"])
 
-    # Push to live dashboard
+    
     await broadcast_order_update(
         tenant_id=tenant_id,
         event_type="order.updated",
