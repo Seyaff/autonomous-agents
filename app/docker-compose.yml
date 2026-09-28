@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: agentic-redis-stack
+    restart: unless-stopped
+    ports:
+      - "6379:6379"    # Redis protocol
+      - "8001:8001"    # RedisInsight dashboard
+    environment:
+      - REDIS_ARGS=--save 60 1 --loglevel notice
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  redis_data:

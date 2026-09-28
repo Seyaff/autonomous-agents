@@ -1,7 +1,7 @@
 import jwt
 from fastapi import Request, Depends, HTTPException, status
 from core.database import get_database
-from api.v1.auth.jwt import verify_jwt_token
+from utils.jwt import verify_jwt_token
 
 async def get_current_user(request: Request, database=Depends(get_database)):
     token = request.cookies.get("access_token")
