@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
+
+
 # ---------------------------------------------------------------------------
 # LLM + Tools
 # ---------------------------------------------------------------------------
@@ -214,7 +216,7 @@ async def run_customer_support_turn(
             + [HumanMessage(content=user_message)]
         )
 
-        print(f"Messages : {exec_messages}")
+    
         # 8. Invoke agent
         try:
             result = await agent.ainvoke({"messages": exec_messages}, config=config)
