@@ -228,7 +228,7 @@ async def connect_meta_whatsapp(
 
 
 # ---------------------------------------------------------------------------
-# PDF menu upload  ← moved OUT of the function above, into its own top-level route
+# PDF menu    ← moved OUT of the function above, into its own top-level route
 # ---------------------------------------------------------------------------
 @tenant_routes.post("/upload-menu-pdf")
 async def upload_menu_pdf(
@@ -272,4 +272,4 @@ async def upload_menu_pdf(
         f"[upload-menu-pdf] ✅ tenant={tenant_id} "
         f"chunks={result.get('chunks_indexed')} doc_id={result.get('doc_id')}"
     )
-    return result
+    return {"result" : result , "bro"  : "Bro response"}

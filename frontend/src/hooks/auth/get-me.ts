@@ -3,9 +3,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { getUserQuery } from "../../../services/auth/auth.service"
 
+
 export const useGetCurrentUser = () => {
     return useQuery({
         queryKey: ["me"],
-        queryFn: getUserQuery
+        queryFn: getUserQuery,
+        retry: false,
+        staleTime: 5 * 60 * 1000,
+        refetchOnWindowFocus: false,
     })
 }

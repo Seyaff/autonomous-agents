@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
 from pydantic import BaseModel, EmailStr, Field
 
-from api.v1.auth.jwt import generate_access_token
+from utils.jwt import generate_access_token
 from core.database import get_database
 from core.settings import settings
 from utils.cookie import set_access_token_cookie

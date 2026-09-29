@@ -33,8 +33,6 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-
-
 # ---------------------------------------------------------------------------
 # LLM + Tools
 # ---------------------------------------------------------------------------
@@ -65,11 +63,6 @@ _locks_guard = asyncio.Lock()
 
 
 async def _get_thread_lock(thread_id: str) -> asyncio.Lock:
-    """
-    Returns a per-thread asyncio.Lock. Uses a WeakValueDictionary so locks
-    that are no longer referenced get garbage-collected automatically — no
-    memory growth as new customers come in.
-    """
     async with _locks_guard:
         lock = _thread_locks.get(thread_id)
         if lock is None:
@@ -82,12 +75,6 @@ async def _get_thread_lock(thread_id: str) -> asyncio.Lock:
 # Token counting (no transformers / tiktoken dependency)
 # ---------------------------------------------------------------------------
 def count_tokens(messages: List[BaseMessage]) -> int:
-    """
-    Rough token counter for a list of messages.
-
-    ~3 chars/token, conservative for mixed English + Roman Urdu. Being
-    conservative means we trim slightly earlier — good for Groq TPM safety.
-    """
     total = 0
     for m in messages:
         content = getattr(m, "content", "")
@@ -107,7 +94,7 @@ trimmer = trim_messages(
 
 
 # ---------------------------------------------------------------------------
-# Agent factory (cached per process)
+# Agent factory (cached per process) — MongoDB checkpointer
 # ---------------------------------------------------------------------------
 def get_customer_support_agent(db: Any) -> CompiledStateGraph:
     """Returns or compiles the persistent customer support agent backed by MongoDB checkpointer."""
@@ -125,7 +112,6 @@ def get_customer_support_agent(db: Any) -> CompiledStateGraph:
 # Reply extraction helper
 # ---------------------------------------------------------------------------
 def _extract_latest_ai_text(messages: List[BaseMessage]) -> str:
-    """Walks the message list backwards and returns the newest non-empty AI text."""
     for msg in reversed(messages):
         if not isinstance(msg, AIMessage) or not msg.content:
             continue
@@ -152,9 +138,6 @@ async def run_customer_support_turn(
     """
     Executes a turn of customer support with dynamic system prompt,
     message history trimming, and persistent MongoDB checkpointing.
-
-    Concurrent invocations for the same (tenant, customer) are serialized via
-    a per-thread asyncio.Lock so webhook retries can't interleave state.
     """
     tenant_id = tenant.get("tenant_id", "default_tenant")
     thread_id = f"{tenant_id}:{customer_phone}"
@@ -162,13 +145,9 @@ async def run_customer_support_turn(
     lock = await _get_thread_lock(thread_id)
 
     async with lock:
-        # 1. Long-term customer context
         customer_context = await format_customer_context(tenant_id, customer_phone)
-
-        # 2. Dynamic system prompt
         system_prompt = compile_customer_support_prompt(tenant, customer_context)
 
-        # 3. LangGraph config
         config = {
             "configurable": {
                 "thread_id": thread_id,
@@ -186,18 +165,15 @@ async def run_customer_support_turn(
 
         agent = get_customer_support_agent(db)
 
-        # 4. Load current checkpoint
         current_state = await agent.aget_state(config)
         existing_messages: List[BaseMessage] = (
             current_state.values.get("messages", []) if current_state else []
         )
 
-        # 5. Drop stale SystemMessages (they're rebuilt every turn)
         clean_history = [
             m for m in existing_messages if not isinstance(m, SystemMessage)
         ]
 
-        # 6. Trim history — guard against empty input
         if clean_history:
             try:
                 trimmed_history = trimmer.invoke(clean_history)
@@ -209,15 +185,13 @@ async def run_customer_support_turn(
         else:
             trimmed_history = []
 
-        # 7. Fresh system prompt + trimmed history + new user message
         exec_messages: List[BaseMessage] = (
             [SystemMessage(content=system_prompt)]
             + trimmed_history
             + [HumanMessage(content=user_message)]
         )
 
-    
-        # 8. Invoke agent
+
         try:
             result = await agent.ainvoke({"messages": exec_messages}, config=config)
         except Exception as e:
@@ -227,7 +201,6 @@ async def run_customer_support_turn(
                 "Thori dair baad dobara koshish karein."
             )
 
-        # 9. Extract reply
         reply_text = _extract_latest_ai_text(result.get("messages", []))
 
         return reply_text or (

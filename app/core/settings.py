@@ -44,9 +44,14 @@ class Settings(BaseSettings):
     META_APP_ID: str = ""
     META_APP_SECRET: str = ""
 
+
+    REDIS_URI:str = Field(... , description="The redis uri for memory")
+
+
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
 
-settings = Settings()
+settings = Settings()
