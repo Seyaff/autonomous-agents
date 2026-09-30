@@ -4,6 +4,7 @@ from pymongo.errors import PyMongoError
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from .settings import settings
 
 
@@ -14,7 +15,8 @@ class MongoDB:
 
 class RedisContainer:
     client: Redis = None
-    checkpointer: AsyncRedisSaver = None
+    checkpointer: BaseCheckpointSaver = None  # Can be AsyncRedisSaver or MongoDBCkptSaver
+    _using_mongo_fallback: bool = False
 
 
 db_container = MongoDB()
@@ -135,59 +137,57 @@ async def connect_redis_database():
     redis_uri = (settings.REDIS_URI or "").strip()
 
     if not redis_uri:
-        raise RuntimeError(
-            "REDIS_URI is not set. Add it to .env (e.g. redis://localhost:6379)"
-        )
+        print("[redis] REDIS_URI not set, will use MongoDB checkpointer fallback")
+        await _setup_mongo_checkpointer_fallback()
+        return
 
     if not redis_uri.startswith(("redis://", "rediss://", "unix://")):
-        raise RuntimeError(
-            f"REDIS_URI must start with redis://, rediss://, or unix:// "
-            f"(got: {redis_uri!r})"
-        )
+        print(f"[redis] Invalid REDIS_URI format: {redis_uri!r}, using MongoDB fallback")
+        await _setup_mongo_checkpointer_fallback()
+        return
 
-    # -------- Capability check: RediSearch + RedisJSON must exist --------
+    # -------- Try to connect and check for Redis Stack modules --------
     probe = Redis.from_url(redis_uri, decode_responses=True)
     try:
         await probe.ping()
     except RedisError as e:
+        print(f"[redis] Cannot reach Redis at {redis_uri}: {e}, using MongoDB fallback")
         await probe.aclose()
-        raise RuntimeError(f"Cannot reach Redis at {redis_uri}: {e}")
+        await _setup_mongo_checkpointer_fallback()
+        return
 
     try:
         modules_raw = await probe.execute_command("MODULE", "LIST")
     except RedisError as e:
+        print(f"[redis] MODULE LIST failed: {e}, using MongoDB fallback")
         await probe.aclose()
-        raise RuntimeError(f"MODULE LIST failed — Redis too old? ({e})")
-
-    # Debug line so you can see the real shape if anything goes wrong again
-    # print(f"[redis] MODULE LIST raw = {modules_raw!r}")
+        await _setup_mongo_checkpointer_fallback()
+        return
 
     module_names = _extract_module_names(modules_raw)
+    await probe.aclose()
 
-    if "search" not in module_names or "rejson" not in module_names:
-        await probe.aclose()
-        raise RuntimeError(
-            "Redis is missing required modules. LangGraph's checkpointer needs "
-            "RediSearch + RedisJSON.\n"
-            f"Detected modules: {sorted(module_names) or 'none'}\n"
-            "Fix: use redis/redis-stack:latest (see docker-compose.yml)."
-        )
+    has_search = "search" in module_names
+    has_rejson = "rejson" in module_names
+
+    if not has_search or not has_rejson:
+        print(f"[redis] Missing required modules (search={has_search}, rejson={has_rejson}), using MongoDB fallback")
+        await _setup_mongo_checkpointer_fallback()
+        return
 
     print(f"[redis] ✅ modules detected: {sorted(module_names)}")
-    await probe.aclose()
 
     # -------- Real Redis client for general app use --------
     try:
         redis_container.client = Redis.from_url(redis_uri, decode_responses=True)
         await redis_container.client.ping()
-        print(f"Successfully connected to Redis at {redis_uri}.")
+        print(f"[redis] Successfully connected to Redis at {redis_uri}.")
     except RedisError as e:
-        print(f"Failed to connect to Redis client: {e}")
-        raise e
+        print(f"[redis] Failed to connect Redis client: {e}, using MongoDB fallback")
+        await _setup_mongo_checkpointer_fallback()
+        return
 
     # -------- LangGraph AsyncRedisSaver checkpointer --------
-    # IMPORTANT: AsyncRedisSaver.from_conn_string() returns an async context
-    # manager, NOT the saver itself. __aenter__() yields the real saver.
     try:
         checkpointer_cm = AsyncRedisSaver.from_conn_string(
             redis_uri,
@@ -200,12 +200,30 @@ async def connect_redis_database():
         await redis_container.checkpointer.asetup()
         print("[checkpointer] ✅ AsyncRedisSaver initialized and indices ensured.")
     except Exception as e:
-        print(f"Failed to initialize LangGraph Redis checkpointer: {e}")
-        raise e
+        print(f"[checkpointer] Failed to initialize Redis checkpointer: {e}, using MongoDB fallback")
+        await _setup_mongo_checkpointer_fallback()
+        return
+
+
+async def _setup_mongo_checkpointer_fallback():
+    """Setup MongoDB checkpointer as fallback for master graph."""
+    if redis_container._using_mongo_fallback:
+        return
+    
+    try:
+        from memory.mongo_checkpointer import MongoDBCkptSaver
+        db = get_database()
+        redis_container.checkpointer = MongoDBCkptSaver(db)
+        await redis_container.checkpointer.asetup()
+        redis_container._using_mongo_fallback = True
+        print("[checkpointer] ✅ MongoDB checkpointer fallback initialized for master graph")
+    except Exception as e:
+        print(f"[checkpointer] ❌ Failed to initialize MongoDB fallback: {e}")
+        raise RuntimeError("No checkpointer available. Need Redis Stack or MongoDB.")
 
 
 async def close_redis_connection():
-    if redis_container.checkpointer:
+    if redis_container.checkpointer and not redis_container._using_mongo_fallback:
         try:
             await redis_container.checkpointer.__aexit__(None, None, None)
             print("LangGraph Redis checkpointer closed.")
@@ -224,14 +242,13 @@ async def close_redis_connection():
             redis_container.client = None
 
 
-
 def get_redis():
     if redis_container.client is None:
         raise RuntimeError("Redis is not initialized. Ensure app lifespan has run.")
     return redis_container.client
 
 
-def get_checkpointer() -> AsyncRedisSaver:
+def get_checkpointer() -> BaseCheckpointSaver:
     if redis_container.checkpointer is None:
         raise RuntimeError("Checkpointer is not initialized. Ensure app lifespan has run.")
     return redis_container.checkpointer
