@@ -140,11 +140,8 @@ async def login_with_email(payload: EmailLoginRequest, response: Response, db=De
 @auth_routes.post("/logout")
 async def logout(response: Response):
     """Logs out user by clearing the access token cookie."""
-    response.delete_cookie(
-        key="access_token",
-        httponly=True,
-        samesite="lax"
-    )
+    from utils.cookie import clear_access_token_cookie
+    clear_access_token_cookie(response)
     return {"status": "success", "message": "Logged out successfully."}
 
 
