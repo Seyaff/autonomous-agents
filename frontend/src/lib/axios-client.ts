@@ -27,25 +27,33 @@ API.interceptors.response.use(
       error.message ||
       "Request failed"
 
-    if (error.response?.status === 401) {
-      toast.error("Session expired. Please log in again.")
-      if (typeof window !== "undefined") {
-        window.location.href = "/login"
+    const status = error.response?.status
+    const currentPath =
+      typeof window !== "undefined" ? window.location.pathname : ""
+    const isAuthEndpoint = error.config?.url?.includes("/auth/")
+
+    if (status === 401) {
+      // Don't toast or redirect if we're already on /login or hitting auth endpoints
+      if (currentPath !== "/login" && !isAuthEndpoint) {
+        toast.error("Session expired. Please log in again.")
+        if (typeof window !== "undefined") {
+          window.location.href = "/login"
+        }
       }
       return Promise.reject(error)
     }
 
-    if (error.response?.status === 403) {
-      toast.error("Access denied")
+    if (status === 403) {
+      if (!isAuthEndpoint) toast.error("Access denied")
       return Promise.reject(error)
     }
 
-    if (error.response?.status >= 500) {
+    if (status >= 500) {
       toast.error(`Server error (${requestId}). Please try again.`)
       return Promise.reject(error)
     }
 
-    toast.error(message)
+    if (!isAuthEndpoint) toast.error(message)
     return Promise.reject(error)
   }
 )

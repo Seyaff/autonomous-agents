@@ -29,7 +29,7 @@ Return as JSON with keys: summary, key_entities, topics, sentiment, decisions"""
 class ConversationSummarizer:
     def __init__(self):
         self.llm = ChatGroq(
-            model="llama-3.1-8b-instant",
+            model="openai/llama-3.1-8b-instant",
             temperature=0.1,
             groq_api_key=settings.GROQ_API_KEY,
         )

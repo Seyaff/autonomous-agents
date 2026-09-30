@@ -71,7 +71,7 @@ async def build_agent_context(
 
     recent_messages = trim_recent_messages(clean_history, MAX_RECENT_TURNS)
 
-    customer_context = format_customer_context(tenant_id, customer_phone)
+    customer_context = await format_customer_context(tenant_id, customer_phone)
     system_prompt = compile_customer_support_prompt(tenant, customer_context)
 
     if summary:

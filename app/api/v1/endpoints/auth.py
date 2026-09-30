@@ -145,6 +145,58 @@ async def logout(response: Response):
     return {"status": "success", "message": "Logged out successfully."}
 
 
+@auth_routes.get("/me")
+async def get_current_user(request: Request, database=Depends(get_database)):
+    """Get current authenticated user from cookie token."""
+    from middlewares.auth_middleware import get_current_user
+    user = await get_current_user(request, database)
+    user.pop("password", None)
+    user.pop("google_id", None)
+    return user
+
+
+@auth_routes.post("/switch-tenant")
+async def switch_tenant(payload: dict, database=Depends(get_database), current_user: dict = Depends(get_current_user)):
+    """Switch active tenant for the user."""
+    tenant_id = payload.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="tenant_id required")
+    
+    # Verify user has access to this tenant
+    if tenant_id not in current_user.get("tenants", []):
+        raise HTTPException(status_code=403, detail="No access to this tenant")
+    
+    await database["users"].update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": {"active_tenant_id": tenant_id, "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {"status": "success", "active_tenant_id": tenant_id}
+
+
+@auth_routes.post("/complete-onboarding")
+async def complete_onboarding(payload: dict, database=Depends(get_database), current_user: dict = Depends(get_current_user)):
+    """Mark user as onboarded after completing restaurant setup."""
+    tenant_id = payload.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="tenant_id required")
+    
+    # Verify user has access to this tenant
+    if tenant_id not in current_user.get("tenants", []):
+        raise HTTPException(status_code=403, detail="No access to this tenant")
+    
+    await database["users"].update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": {
+            "is_onboarded": True,
+            "active_tenant_id": tenant_id,
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    return {"status": "success", "message": "Onboarding completed"}
+
+
 # ------------------ GOOGLE OAUTH FLOW ------------------
 
 @auth_routes.get("/google")

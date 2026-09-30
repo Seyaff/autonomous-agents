@@ -54,4 +54,8 @@ class Settings(BaseSettings):
     )
 
 
+import os
+print("REDIS_URI present:", "REDIS_URI" in os.environ)
+print("REDIS_URI value prefix:", os.environ.get("REDIS_URI", "")[:20])
+
 settings = Settings()

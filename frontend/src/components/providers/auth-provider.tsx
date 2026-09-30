@@ -4,13 +4,13 @@ import {
     createContext,
     useContext,
     useMemo,
+    useEffect,
 } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 
 import API from "@/lib/axios-client"
 import { useGetCurrentUser } from "@/hooks/auth/get-me"
-
 
 
 export type UserRole = "OWNER" | "ADMIN" | "STAFF"
@@ -40,9 +40,13 @@ interface AuthContextValue {
     refetch: () => void
     logout: () => void
     switchTenant: (tenantId: string) => Promise<void>
+    completeOnboarding: (tenantId: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+
+const ONBOARDING_PATHS = ["/onboarding", "/settings"]
+const PUBLIC_PATHS = ["/login", "/signup", "/privacy"]
 
 export default function AuthProvider({
     children,
@@ -50,6 +54,7 @@ export default function AuthProvider({
     children: React.ReactNode
 }) {
     const router = useRouter()
+    const pathname = usePathname()
     const queryClient = useQueryClient()
 
     const {
@@ -64,13 +69,44 @@ export default function AuthProvider({
     const activeTenantId = user?.active_tenant_id ?? null
     const tenants = user?.tenants ?? []
 
+    // Handle redirects based on auth/onboarding state
+    useEffect(() => {
+        if (isLoading) return
+
+        const isOnboardingPath = ONBOARDING_PATHS.some(p => pathname.startsWith(p))
+        const isPublicPath = PUBLIC_PATHS.some(p => pathname === p)
+
+        // Not authenticated -> redirect to login (unless on public path)
+        if (!isAuthenticated && !isPublicPath) {
+            router.replace("/login")
+            return
+        }
+
+        // Authenticated but not onboarded -> redirect to onboarding (unless already there)
+        if (isAuthenticated && !isOnboarded && !isOnboardingPath) {
+            router.replace("/onboarding")
+            return
+        }
+
+        // Authenticated and onboarded but on onboarding path -> redirect to dashboard
+        if (isAuthenticated && isOnboarded && isOnboardingPath) {
+            router.replace("/dashboard")
+            return
+        }
+
+        // Authenticated and onboarded but on public path -> redirect to dashboard
+        if (isAuthenticated && isOnboarded && isPublicPath) {
+            router.replace("/dashboard")
+            return
+        }
+    }, [isAuthenticated, isOnboarded, isLoading, pathname, router])
+
     // ---------- Actions ----------
 
     const logout = async () => {
         try {
             await API.post("/auth/logout")
         } catch {
-           
         }
         queryClient.setQueryData(["me"], null)
         queryClient.clear()
@@ -85,7 +121,13 @@ export default function AuthProvider({
         queryClient.invalidateQueries()
     }
 
-   
+    const completeOnboarding = async (tenantId: string) => {
+        await API.post("/auth/complete-onboarding", { tenant_id: tenantId })
+        await refetch()
+        queryClient.invalidateQueries()
+        router.replace("/dashboard")
+    }
+
     const value = useMemo<AuthContextValue>(
         () => ({
             user: user ?? null,
@@ -98,6 +140,7 @@ export default function AuthProvider({
             refetch,
             logout,
             switchTenant,
+            completeOnboarding,
         }),
         [
             user,
@@ -117,8 +160,6 @@ export default function AuthProvider({
         </AuthContext.Provider>
     )
 }
-
-// ---------- Hook ----------
 
 export function useAuth() {
     const ctx = useContext(AuthContext)
