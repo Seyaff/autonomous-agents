@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 
 // ---------- Route config ----------
 
-const PUBLIC_ROUTES = ["/login", "/register", "/forgot-password"]
+const PUBLIC_ROUTES = ["/login", "/register" , "/signup", "/forgot-password"]
 const GUEST_ONLY_ROUTES = ["/login", "/register", "/forgot-password"] // logged-in users get bounced away
 const ONBOARDING_ROUTE = "/onboarding"
 const AUTH_COOKIE = "access_token"
