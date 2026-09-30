@@ -234,9 +234,6 @@ def route_to_agents(state: MasterState) -> List[str]:
     return [a for a in wanted if a in ALL_AGENTS] or ["customer_support"]
 
 
-# ---------------------------------------------------------------------------
-# Graph builder
-# ---------------------------------------------------------------------------
 def _build_master_graph() -> StateGraph:
     graph = StateGraph(MasterState)
 
@@ -266,10 +263,6 @@ def _build_master_graph() -> StateGraph:
 
     return graph
 
-
-# ---------------------------------------------------------------------------
-# Lazy compiled graph (Redis checkpointer attached)
-# ---------------------------------------------------------------------------
 _master_graph: CompiledStateGraph | None = None
 
 

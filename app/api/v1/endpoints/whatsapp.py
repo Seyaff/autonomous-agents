@@ -57,6 +57,7 @@ async def handle_inbound_pdf(
     tenant_id: str,
     token: Optional[str] = None,
     phone_number_id: Optional[str] = None,
+    request_id: str = "bg",
 ):
     """Download PDF, chunk, embed into tenant's Pinecone namespace, notify user."""
     try:
@@ -87,7 +88,7 @@ async def handle_inbound_pdf(
             )
 
     except Exception as e:
-        logger.error(f"Error executing PDF ingestion for tenant {tenant_id}: {e}")
+        logger.error(f"[{request_id}] Error executing PDF ingestion for tenant {tenant_id}: {e}")
         reply = "❌ An error occurred while processing your document."
 
     await send_whatsapp_message(
@@ -106,11 +107,12 @@ async def handle_text_turn(
     user_payload: str,
     tenant_token: Optional[str],
     tenant_phone_id: Optional[str],
+    request_id: str = "bg",
 ):
     """Background task for an inbound text message."""
     try:
         logger.info(
-            f"Incoming message from [{sender_phone}] for tenant [{tenant_id}]: {user_payload}"
+            f"[{request_id}] Incoming message from [{sender_phone}] for tenant [{tenant_id}]: {user_payload}"
         )
 
         reply_text = await run_customer_support_turn(
@@ -122,7 +124,7 @@ async def handle_text_turn(
 
         if reply_text:
             logger.info(
-                f"Agent reply to [{sender_phone}] for tenant [{tenant_id}]: {reply_text}"
+                f"[{request_id}] Agent reply to [{sender_phone}] for tenant [{tenant_id}]: {reply_text}"
             )
             await send_whatsapp_message(
                 to_phone=sender_phone,
@@ -131,7 +133,7 @@ async def handle_text_turn(
                 phone_number_id=tenant_phone_id,
             )
     except Exception as e:
-        logger.exception(f"Background text turn failed for {sender_phone}: {e}")
+        logger.exception(f"[{request_id}] Background text turn failed for {sender_phone}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +157,8 @@ async def receive_meta_webhook(
       - Dedup on `message.id` (wamid) via a unique Mongo index so Meta's
         retries (which fire when we're slow) are silently dropped.
     """
+    request_id = getattr(request.state, "request_id", "unknown")
+    
     # ---- 1. Parse ----
     try:
         body = await request.json()
@@ -171,7 +175,7 @@ async def receive_meta_webhook(
         inbound_phone_id = metadata.get("phone_number_id")
         display_number = metadata.get("display_phone_number")
     except (IndexError, AttributeError, KeyError) as e:
-        logger.error(f"Error parsing webhook payload: {e}")
+        logger.error(f"[{request_id}] Error parsing webhook payload: {e}")
         return {"status": "success"}  # always ACK Meta
 
     # ---- 2. Resolve tenant ----
@@ -186,7 +190,7 @@ async def receive_meta_webhook(
         tenant = await database["tenants"].find_one({})
 
     if not tenant:
-        logger.warning("No tenant configured in database for inbound WhatsApp message.")
+        logger.warning(f"[{request_id}] No tenant configured in database for inbound WhatsApp message.")
         return {"status": "no_tenant_configured"}
 
     tenant_id = tenant.get("tenant_id", "default_tenant")
@@ -204,7 +208,7 @@ async def receive_meta_webhook(
 
     # ---- LOG: every inbound webhook hit ----
     logger.info(
-        f"[webhook] received msg_id={message_id} from={sender_phone} "
+        f"[{request_id}] [webhook] received msg_id={message_id} from={sender_phone} "
         f"type={msg_type} tenant={tenant_id}"
     )
 
@@ -222,7 +226,7 @@ async def receive_meta_webhook(
             )
         except DuplicateKeyError:
             logger.warning(
-                f"[dedup] Dropped duplicate webhook: msg_id={message_id} "
+                f"[{request_id}] [dedup] Dropped duplicate webhook: msg_id={message_id} "
                 f"from={sender_phone} tenant={tenant_id}"
             )
             return {"status": "duplicate_ignored"}
@@ -243,6 +247,7 @@ async def receive_meta_webhook(
                 tenant_id=tenant_id,
                 token=tenant_token,
                 phone_number_id=tenant_phone_id,
+                request_id=request_id,
             )
 
     elif msg_type == "text":
@@ -257,10 +262,11 @@ async def receive_meta_webhook(
                 user_payload=user_payload,
                 tenant_token=tenant_token,
                 tenant_phone_id=tenant_phone_id,
+                request_id=request_id,
             )
 
     elif msg_type == "audio":
-        logger.info(f"Audio message from {sender_phone}: {msg}")
+        logger.info(f"[{request_id}] Audio message from {sender_phone}: {msg}")
         # TODO: handle audio later
 
     # ---- 5. ACK in milliseconds ----

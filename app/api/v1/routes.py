@@ -10,7 +10,7 @@ from api.v1.endpoints.founder import founder_router
 from api.v1.endpoints.knowledge import knowledge_router
 from api.v1.endpoints.websocket import websocket_router
 from api.v1.endpoints.agent import agent_router
-
+from api.v1.endpoints.health import router as health_router
 
 
 v1_router = APIRouter()
@@ -27,3 +27,4 @@ v1_router.include_router(alias_router)
 v1_router.include_router(alias_router)
 v1_router.include_router(websocket_router)
 v1_router.include_router(agent_router)
+v1_router.include_router(health_router)
