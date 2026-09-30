@@ -214,7 +214,7 @@ async def _setup_mongo_checkpointer_fallback():
         from memory.mongo_checkpointer import MongoDBCkptSaver
         db = get_database()
         redis_container.checkpointer = MongoDBCkptSaver(db)
-        await redis_container.checkpointer.asetup()
+        await redis_container.checkpointer.ensure_indexes()
         redis_container._using_mongo_fallback = True
         print("[checkpointer] ✅ MongoDB checkpointer fallback initialized for master graph")
     except Exception as e:
