@@ -4,13 +4,14 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from pypdf import PdfReader
-from pinecone import Pinecone,ServerlessSpec
+from pinecone import Pinecone, ServerlessSpec
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_pinecone import PineconeEmbeddings, PineconeVectorStore
 from core.settings import settings
 from core.database import get_database
+from services.pdf_validator import validate_pdf, PDFValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,12 @@ async def ingest_pdf_bytes_for_tenant(
     Parses PDF bytes, splits into overlapping chunks, upserts embeddings
     into Pinecone under the tenant's namespace, and records in MongoDB.
     """
+    # Validate PDF first
+    is_valid, error_msg = validate_pdf(file_bytes, filename)
+    if not is_valid:
+        logger.warning(f"PDF validation failed for {filename}: {error_msg}")
+        return {"status": "error", "message": error_msg}
+
     doc_id = f"doc_{uuid.uuid4().hex[:8]}"
     raw_documents = parse_pdf_bytes(file_bytes, filename, tenant_id, doc_id)
     if not raw_documents:

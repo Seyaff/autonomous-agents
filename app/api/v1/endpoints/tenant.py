@@ -272,4 +272,4 @@ async def upload_menu_pdf(
         f"[upload-menu-pdf] ✅ tenant={tenant_id} "
         f"chunks={result.get('chunks_indexed')} doc_id={result.get('doc_id')}"
     )
-    return {"result" : result , "bro"  : "Bro response"}
+    return result

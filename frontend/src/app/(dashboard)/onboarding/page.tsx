@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { CheckCircle2, ChevronRight, Store, Truck, FileUp, MessageSquareShare } from "lucide-react"
 import API from "@/lib/axios-client"
+import { MetaEmbeddedSignup } from "@/components/MetaEmbeddedSignup"
+import { toast } from "sonner"
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -30,8 +32,6 @@ export default function OnboardingPage() {
   const [menuUploaded, setMenuUploaded] = useState(false)
 
   // Step 4: Meta WhatsApp Connection
-  const [phoneNumberId, setPhoneNumberId] = useState("")
-  const [wabaId, setWabaId] = useState("")
   const [whatsAppConnected, setWhatsAppConnected] = useState(false)
 
   // Created Tenant ID
@@ -103,7 +103,7 @@ export default function OnboardingPage() {
 
       console.log(res)
 
-      if (res.data.status === "success") {
+      if (res.data.result?.status === "success") {
         setMenuUploaded(true)
         setStep(4)
       } else {
@@ -119,25 +119,16 @@ export default function OnboardingPage() {
     }
   }
 
-  const handleMetaEmbeddedSignup = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      // Meta Embedded Signup handshake
-      await API.post("/tenant/meta-embedded-signup", {
-        code: "embedded_signup_code_dev",
-        phone_number_id: phoneNumberId || "109823746501928",
-        waba_id: wabaId || "100293847562810"
-      })
-      setWhatsAppConnected(true)
-      setTimeout(() => {
-        router.push("/dashboard")
-      }, 1200)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Could not link WhatsApp account.")
-    } finally {
-      setLoading(false)
-    }
+  const handleWhatsAppSuccess = () => {
+    setWhatsAppConnected(true)
+    toast.success("WhatsApp connected successfully!")
+    setTimeout(() => {
+      router.push("/dashboard")
+    }, 1200)
+  }
+
+  const handleWhatsAppError = (error: string) => {
+    setError(error)
   }
 
   return (
@@ -331,31 +322,15 @@ export default function OnboardingPage() {
                 Meta Embedded Signup Integration
               </h4>
               <p className="text-xs text-muted-foreground">
-                In production, clicking the button triggers Meta's secure embedded popup window to authenticate your Meta Business Manager and grant WhatsApp Cloud API permissions.
+                Click the button below to authenticate with Meta and grant WhatsApp Cloud API permissions.
               </p>
             </div>
 
-            <div className="space-y-3 pt-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="phoneId">WhatsApp Phone Number ID</Label>
-                <Input
-                  id="phoneId"
-                  placeholder="e.g. 109823746501928"
-                  value={phoneNumberId}
-                  onChange={(e) => setPhoneNumberId(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="wabaId">WhatsApp Business Account (WABA) ID</Label>
-                <Input
-                  id="wabaId"
-                  placeholder="e.g. 100293847562810"
-                  value={wabaId}
-                  onChange={(e) => setWabaId(e.target.value)}
-                />
-              </div>
-            </div>
+            <MetaEmbeddedSignup
+              onSuccess={handleWhatsAppSuccess}
+              onError={handleWhatsAppError}
+              disabled={whatsAppConnected}
+            />
 
             {whatsAppConnected && (
               <div className="rounded-md bg-green-50 text-green-800 p-3 text-sm font-medium flex items-center gap-2">
@@ -366,13 +341,6 @@ export default function OnboardingPage() {
           </CardContent>
           <CardFooter className="flex justify-between">
             <Button variant="ghost" onClick={() => setStep(3)}>Back</Button>
-            <Button
-              onClick={handleMetaEmbeddedSignup}
-              disabled={loading || whatsAppConnected}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              {loading ? "Connecting WhatsApp..." : "Complete Setup & Launch Autopilot"}
-            </Button>
           </CardFooter>
         </Card>
       )}

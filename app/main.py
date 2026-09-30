@@ -14,10 +14,14 @@ from core.database import (
     connect_redis_database,
     close_redis_connection,
 )
+from middlewares.error_handling import setup_error_handling
+from core.logging import configure_logging
 
 from api.v1.routes import v1_router
 
 load_dotenv()
+
+configure_logging()
 
 
 @asynccontextmanager
@@ -39,6 +43,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+setup_error_handling(app)
 
 origins = [
     "http://localhost:3000",

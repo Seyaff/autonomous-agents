@@ -11,15 +11,13 @@ from langchain_core.messages import (
     HumanMessage,
     AIMessage,
     BaseMessage,
-    trim_messages,
 )
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.state import CompiledStateGraph
 
 from core.settings import settings
 from memory.mongo_checkpointer import MongoDBCkptSaver
-from memory.customer_memory import format_customer_context
-from agents.customer_support.prompt import compile_customer_support_prompt
+from memory.context_builder import build_agent_context, trigger_summarization_if_needed
 from agents.customer_support.tools import (
     search_uploaded_documents,
     create_order_tool,
@@ -72,28 +70,6 @@ async def _get_thread_lock(thread_id: str) -> asyncio.Lock:
 
 
 # ---------------------------------------------------------------------------
-# Token counting (no transformers / tiktoken dependency)
-# ---------------------------------------------------------------------------
-def count_tokens(messages: List[BaseMessage]) -> int:
-    total = 0
-    for m in messages:
-        content = getattr(m, "content", "")
-        if isinstance(content, list):
-            content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
-        total += len(str(content)) // 3
-    return total
-
-
-trimmer = trim_messages(
-    max_tokens=3000,
-    strategy="last",
-    token_counter=count_tokens,
-    start_on="human",
-    include_system=False,
-)
-
-
-# ---------------------------------------------------------------------------
 # Agent factory (cached per process) — MongoDB checkpointer
 # ---------------------------------------------------------------------------
 def get_customer_support_agent(db: Any) -> CompiledStateGraph:
@@ -136,8 +112,10 @@ async def run_customer_support_turn(
     user_message: str,
 ) -> str:
     """
-    Executes a turn of customer support with dynamic system prompt,
-    message history trimming, and persistent MongoDB checkpointing.
+    Executes a turn of customer support with hierarchical memory:
+    - System prompt with static config + customer profile + conversation summary
+    - Recent messages (last 6 turns) passed via state
+    - Automatic summarization every 6 turns or when token threshold exceeded
     """
     tenant_id = tenant.get("tenant_id", "default_tenant")
     thread_id = f"{tenant_id}:{customer_phone}"
@@ -145,8 +123,7 @@ async def run_customer_support_turn(
     lock = await _get_thread_lock(thread_id)
 
     async with lock:
-        customer_context = await format_customer_context(tenant_id, customer_phone)
-        system_prompt = compile_customer_support_prompt(tenant, customer_context)
+        context = await build_agent_context(tenant, customer_phone, thread_id, db)
 
         config = {
             "configurable": {
@@ -174,23 +151,13 @@ async def run_customer_support_turn(
             m for m in existing_messages if not isinstance(m, SystemMessage)
         ]
 
-        if clean_history:
-            try:
-                trimmed_history = trimmer.invoke(clean_history)
-            except Exception as e:
-                logger.warning(
-                    f"Trimmer failed for {thread_id}, falling back to last 10: {e}"
-                )
-                trimmed_history = clean_history[-10:]
-        else:
-            trimmed_history = []
+        recent_messages = context.recent_messages
 
         exec_messages: List[BaseMessage] = (
-            [SystemMessage(content=system_prompt)]
-            + trimmed_history
+            [SystemMessage(content=context.system_prompt)]
+            + [HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"]) for m in recent_messages]
             + [HumanMessage(content=user_message)]
         )
-
 
         try:
             result = await agent.ainvoke({"messages": exec_messages}, config=config)
@@ -202,6 +169,10 @@ async def run_customer_support_turn(
             )
 
         reply_text = _extract_latest_ai_text(result.get("messages", []))
+
+        asyncio.create_task(
+            trigger_summarization_if_needed(tenant_id, customer_phone, thread_id)
+        )
 
         return reply_text or (
             "Ji, aap ka paigham mosool ho gaya hai. "
