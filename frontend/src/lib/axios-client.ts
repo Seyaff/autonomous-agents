@@ -2,14 +2,14 @@ import axios from "axios"
 import { toast } from "sonner"
 
 const getBaseURL = () => {
-  // In production on Vercel, NEXT_PUBLIC_BACKEND_URL should be set
-  // In development, fallback to localhost
-  const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL
-  if (envUrl && envUrl.startsWith("http")) {
-    return envUrl
+  // In production with rewrites, use relative path
+  // In development, use the backend URL directly
+  if (typeof window !== "undefined") {
+    // Client-side: use relative path (proxied by Next.js rewrites)
+    return "/api"
   }
-  // Fallback for local development
-  return "http://localhost:8000/api/v1"
+  // Server-side: use actual backend URL
+  return process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000/api/v1"
 }
 
 const API = axios.create({
@@ -22,7 +22,6 @@ API.interceptors.request.use(
   (config) => {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     config.headers["X-Request-ID"] = requestId
-    // Debug: log request URL in development
     if (process.env.NODE_ENV === "development") {
       console.log(`[API] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`)
     }
@@ -56,7 +55,6 @@ API.interceptors.response.use(
     }
 
     if (status === 401) {
-      // Don't toast or redirect if we're already on /login or hitting auth endpoints
       if (currentPath !== "/login" && !isAuthEndpoint) {
         toast.error("Session expired. Please log in again.")
         if (typeof window !== "undefined") {

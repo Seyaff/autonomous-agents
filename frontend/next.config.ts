@@ -5,6 +5,14 @@ const nextConfig: NextConfig = {
   turbopack: {},
   reactCompiler: true,
   allowedDevOrigins: ['overbuilt-falsify-resort.ngrok-free.dev'],
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000/api/v1'}/:path*`,
+      },
+    ];
+  },
   webpack: (config, { dev, isServer }) => {
     if (dev && !isServer) {
       config.watchOptions = {
@@ -17,5 +25,3 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
-
-
