@@ -18,12 +18,15 @@ auth_routes = APIRouter(prefix="/auth", tags=["Auth Routes"])
 
 oauth = OAuth()
 if settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET:
+    # Use explicit redirect URI to avoid proxy issues
+    redirect_uri = getattr(settings, "GOOGLE_CALLBACK_URL", "http://localhost:8000/api/v1/auth/google/callback")
     oauth.register(
         name="google",
         client_id=settings.GOOGLE_CLIENT_ID,
         client_secret=settings.GOOGLE_CLIENT_SECRET,
         server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
         client_kwargs={"scope": "openid email profile"},
+        redirect_uri=redirect_uri,
     )
 
 
@@ -202,7 +205,9 @@ async def complete_onboarding(payload: dict, database=Depends(get_database), cur
 @auth_routes.get("/google")
 async def login_with_google(request: Request):
     """Initiates Google OAuth authentication redirect."""
-    redirect_uri = request.url_for("google_callback_handler")
+    # Use explicit redirect_uri registered in Google Cloud Console
+    redirect_uri = getattr(settings, "GOOGLE_CALLBACK_URL", "http://localhost:8000/api/v1/auth/google/callback")
+    logger.info(f"[google] Initiating OAuth with redirect_uri: {redirect_uri}")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
