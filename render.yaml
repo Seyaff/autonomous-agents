@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: siyaf-backend
+    runtime: python
+    buildCommand: "cd app && uv sync --frozen"
+    startCommand: "cd app && uv run uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12
+      - key: MONGO_URI
+        sync: false
+      - key: DATABASE_NAME
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_BUSINESS_ACCOUNT_ID
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: SESSION_SECRET_KEY
+        sync: false
+      - key: REDIS_URI
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: APIFY_API_TOKEN
+        sync: false
+    healthCheckPath: /api/v1/health/ready
+    autoDeploy: true

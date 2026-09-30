@@ -24,17 +24,35 @@ load_dotenv()
 configure_logging()
 
 
+# Simple liveness check - no dependencies
+from fastapi.responses import PlainTextResponse
+from fastapi import Request
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup - minimal blocking work
+    # Connect to MongoDB (required)
     await connect_to_mongo()
     await ensure_webhook_indexes()
     await verify_webhook_indexes()
-    await connect_redis_database()
+    
+    # Connect Redis in background (non-blocking for health checks)
+    import asyncio
+    asyncio.create_task(connect_redis_database_safe())
+    
     yield
     # Shutdown
     await close_redis_connection()
     await close_mongo_connection()
+
+
+async def connect_redis_database_safe():
+    """Connect to Redis without blocking startup."""
+    try:
+        from core.database import connect_redis_database
+        await connect_redis_database()
+    except Exception as e:
+        print(f"[redis] Background connection failed: {e}")
 
 
 app = FastAPI(
@@ -43,6 +61,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Liveness probe - responds immediately without any dependencies
+@app.get("/health/live")
+async def liveness():
+    return PlainTextResponse("OK", status_code=200)
 
 setup_error_handling(app)
 
