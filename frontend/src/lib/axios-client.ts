@@ -1,9 +1,19 @@
 import axios from "axios"
 import { toast } from "sonner"
 
+const getBaseURL = () => {
+  // In production on Vercel, NEXT_PUBLIC_BACKEND_URL should be set
+  // In development, fallback to localhost
+  const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL
+  if (envUrl && envUrl.startsWith("http")) {
+    return envUrl
+  }
+  // Fallback for local development
+  return "http://localhost:8000/api/v1"
+}
+
 const API = axios.create({
-  baseURL:
-    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000/api/v1",
+  baseURL: getBaseURL(),
   withCredentials: true,
   timeout: 30000,
 })
@@ -12,13 +22,22 @@ API.interceptors.request.use(
   (config) => {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     config.headers["X-Request-ID"] = requestId
+    // Debug: log request URL in development
+    if (process.env.NODE_ENV === "development") {
+      console.log(`[API] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`)
+    }
     return config
   },
   (error) => Promise.reject(error)
 )
 
 API.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`[API] Response ${response.status} from ${response.config.url}`)
+    }
+    return response
+  },
   (error) => {
     const requestId = error.config?.headers?.["X-Request-ID"] || "unknown"
     const message =
@@ -31,6 +50,10 @@ API.interceptors.response.use(
     const currentPath =
       typeof window !== "undefined" ? window.location.pathname : ""
     const isAuthEndpoint = error.config?.url?.includes("/auth/")
+
+    if (process.env.NODE_ENV === "development") {
+      console.error(`[API] Error ${status} on ${error.config?.url}:`, error.response?.data)
+    }
 
     if (status === 401) {
       // Don't toast or redirect if we're already on /login or hitting auth endpoints
