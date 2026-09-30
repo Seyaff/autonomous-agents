@@ -18,8 +18,9 @@ import API from "@/lib/axios-client"
 
 export function LoginForm({
   className,
+  next = "/onboarding",
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"div"> & { next?: string }) {
   const router = useRouter()
   const { mutate: loginWithGoogle, isPending: isGooglePending } = useGoogleLogin()
 
@@ -37,13 +38,17 @@ export function LoginForm({
       const res = await API.post("/auth/login", { email, password })
       if (res.data.status === "success") {
         const isOnboarded = res.data.user?.is_onboarded
-        router.push(isOnboarded ? "/dashboard" : "/onboarding")
+        router.push(isOnboarded ? "/dashboard" : next)
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Invalid email or password.")
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleGoogleLogin = () => {
+    loginWithGoogle(next)
   }
 
   return (
@@ -105,7 +110,7 @@ export function LoginForm({
           <Button
             variant="outline"
             type="button"
-            onClick={() => loginWithGoogle()}
+            onClick={handleGoogleLogin}
             disabled={isGooglePending || loading}
             className="w-full"
           >

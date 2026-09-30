@@ -204,8 +204,13 @@ async def login_with_google(request: Request):
     """Initiates Google OAuth authentication redirect."""
     # Use explicit redirect_uri registered in Google Cloud Console
     redirect_uri = getattr(settings, "GOOGLE_CALLBACK_URL", "http://localhost:8000/api/v1/auth/google/callback")
-    logger.info(f"[google] Initiating OAuth with redirect_uri: {redirect_uri}")
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    
+    # Get next parameter from query string
+    next_param = request.query_params.get("next", "/onboarding")
+    logger.info(f"[google] Initiating OAuth with redirect_uri: {redirect_uri}, next: {next_param}")
+    
+    # Pass next parameter via state to preserve it through OAuth flow
+    return await oauth.google.authorize_redirect(request, redirect_uri, state=next_param)
 
 
 @auth_routes.get("/google/callback", name="google_callback_handler")
@@ -255,9 +260,18 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
             {"$set": {"last_login": datetime.now(timezone.utc)}}
         )
 
+    # Check if user is onboarded
+    is_onboarded = user.get("is_onboarded", False)
+    
+    # Get next parameter from state (passed through OAuth flow)
+    next_param = request.query_params.get("state") or request.query_params.get("next", "/onboarding" if not is_onboarded else "/dashboard")
+    
     access_token = generate_access_token(user_id)
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
-    redirect_target = f"{frontend_url}/dashboard"
+    # Ensure next_param starts with /
+    if not next_param.startswith("/"):
+        next_param = "/" + next_param
+    redirect_target = f"{frontend_url}{next_param}"
 
     response = RedirectResponse(url=redirect_target)
     set_access_token_cookie(response=response, token=access_token)
