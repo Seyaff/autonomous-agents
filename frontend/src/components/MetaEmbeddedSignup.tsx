@@ -10,9 +10,10 @@ interface MetaEmbeddedSignupProps {
   onSuccess?: () => void
   onError?: (error: string) => void
   disabled?: boolean
+  next?: string
 }
 
-export function MetaEmbeddedSignup({ onSuccess, onError, disabled = false }: MetaEmbeddedSignupProps) {
+export function MetaEmbeddedSignup({ onSuccess, onError, disabled = false, next = "/onboarding" }: MetaEmbeddedSignupProps) {
   const [loading, setLoading] = useState(false)
   const [sdkLoaded, setSdkLoaded] = useState(false)
   const [sdkError, setSdkError] = useState<string | null>(null)
@@ -84,6 +85,7 @@ export function MetaEmbeddedSignup({ onSuccess, onError, disabled = false }: Met
         throw new Error("No authorization code received from Meta")
       }
 
+      // Use the meta-embedded-signup endpoint through the proxy
       const res = await API.post("/tenant/meta-embedded-signup", {
         code,
       })

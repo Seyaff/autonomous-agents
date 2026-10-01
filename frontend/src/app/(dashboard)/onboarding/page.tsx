@@ -170,11 +170,11 @@ export default function OnboardingPage() {
       const formData = new FormData()
       formData.append("file", data.pdfFile)
 
-      const res = await API.post("/tenant/upload-menu-pdf", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      })
+      // Don't set Content-Type header - let browser set it with boundary
+      const res = await API.post("/tenant/upload-menu-pdf", formData)
 
-      if (res.data.result?.status === "success") {
+      // Backend returns result directly: { status, chunks_indexed, ... }
+      if (res.data.status === "success") {
         nextStep()
       } else {
         setError(res.data.message || "Failed to index the menu PDF.")
