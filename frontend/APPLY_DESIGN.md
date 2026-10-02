@@ -8,6 +8,18 @@ Instructions for Claude Code. Read this whole file before starting.
 2. Read `frontend/AGENTS.md`. This repo uses a newer Next.js (16) than your training data. Check `node_modules/next/dist/docs/` before using any Next.js API.
 3. Look at the reference prototype linked at the top of `DESIGN.md`, if you can open it.
 
+## Mode: mock data first
+
+For now, build every screen with **dummy data** so the full design can be seen, including the features the backend doesn't support yet. Later we'll switch to the real API.
+
+How the mock data must be set up so that switch is easy:
+
+- Put all dummy data in `src/lib/mock/`, one file per area: `conversations.ts`, `messages.ts`, `orders.ts`, `kpis.ts`, `tenant.ts`. Nowhere else.
+- Shape the data exactly like the backend responses. Read `app/models/inbox.py`, `app/schemas/inbox.py`, `app/schemas/order.py` and `app/api/v1/endpoints/orders.py`. Use the same field names and status values.
+- Components never import mock files directly. Build data hooks in `src/hooks/` (for example `useConversations`, `useMessages`, `useOrders`, `useKpis`) that return mock data when `NEXT_PUBLIC_USE_MOCKS=true` and call the real API otherwise. Add `NEXT_PUBLIC_USE_MOCKS=true` to `.env.local` and `.env.example`.
+- Mutations (owner reply, take over, advance a ticket) update local state in mock mode, so the UI works when clicked.
+- Use the sample content from the reference prototype: the restaurant Daal & Dough with a Gulberg III branch, the customers Ayesha, Bilal, Hamza and Sana, orders such as `ORD-7F3A`, and Rs prices. Set the mock tenant's `currency` to `PKR`, and display money through a formatter that reads `tenant.currency`.
+
 ## Scope
 
 - **Do:** the restaurant owner side, `/dashboard/*`, plus the shared layout, theme and sidebar.
@@ -30,24 +42,30 @@ Do one step at a time. After each step, run lint and typecheck, summarize what c
 ### Step 2: Sidebar and header
 - In `src/components/sidebar/app-sidebar.tsx`, delete the template data: "Acme Inc", "Evil Corp.", favorites and workspaces.
 - Set the navigation to: Live service (`/dashboard`), Inbox, Orders, Menu knowledge, Reports, Settings. Pages that don't exist yet can link to a simple "Coming soon" empty state.
-- Replace the team switcher with a tenant switcher, using `tenants` and `switchTenant` from the auth provider (`POST /auth/switch-tenant`). The auth provider only has tenant IDs, so show the active restaurant's name from `GET /tenant/current` and show the others by ID until a tenant list endpoint exists.
-- Add the header from `DESIGN.md` §4, with the agent state indicator and no plan usage meter.
-- **Done when:** no template or placeholder data remains in the chrome.
+- Replace the team switcher with a tenant switcher, using `tenants` and `switchTenant` from the auth provider (`POST /auth/switch-tenant`). In mock mode, show Daal & Dough with 3 branches from `src/lib/mock/tenant.ts`. In real mode, the auth provider only has tenant IDs, so show the active restaurant's name from `GET /tenant/current` and the others by ID.
+- Add the header from `DESIGN.md` §4, with the agent state indicator and the plan usage meter (mock data).
+- **Done when:** none of the old template data remains in the sidebar or header.
 
 ### Step 3: `/dashboard` live console
-- Build layout pattern A from `DESIGN.md` §3, with real data:
-  - **Queue:** `GET /inbox/conversations`, grouped as in §3 A. Use only the groups the backend supports today: open and closed. "Needs you" is not built yet.
+- Build layout pattern A from `DESIGN.md` §3. Each data hook returns mock data now and calls these endpoints in real mode:
+  - **Queue:** `GET /inbox/conversations`, grouped Needs you → Agent handling → Resolved today, as in §3 A.
   - **Thread:** `GET /inbox/conversations/{id}`, `POST /inbox/conversations/{id}/read`, and owner replies through `POST /inbox/conversations/{id}/messages`.
-  - **Live updates:** the WebSocket at `/ws/inbox`. Read `app/core/ws_manager.py` and `app/schemas/ws_events.py` for the event shapes.
+  - **Live updates:** the WebSocket at `/ws/inbox` (real mode only; in mock mode the lunch-rush replay simulates them). Read `app/core/ws_manager.py` and `app/schemas/ws_events.py` for the event shapes.
   - **Rail:** today's orders from `GET /orders`, advanced with `PATCH /orders/{id}`.
   - **KPI strip:** `GET /orders/stats/summary`.
 - Remove the hardcoded stat cards and `dummyOrders` from `src/components/dashboard/data-table.tsx`.
-- **Done when:** the console shows live data, and a new WhatsApp message appears without refreshing the page.
+- Also build these prototype features. The backend doesn't support them yet, so they run on mock data only:
+  - **Agent trace lines**, the Take over / Hand back bar and **quick replies**. Bilal's chat is escalated for a refund.
+  - The **"Needs you"** group and the **typing indicator**.
+  - **Read ticks** and the **plan usage meter** ("Growth plan · 1,284 / 2,000 AI conversations").
+  - When a ticket moves, a toast saying which WhatsApp update the customer received.
+- Add a **"Replay lunch rush"** button, shown only in mock mode, that plays the scripted sequence from the prototype. Ayesha asks about the family deal, the agent searches the menu and replies, she orders, the agent creates `ORD-7F3A`, and the ticket prints onto the rail while the KPIs go up. Then Hamza asks about a BOGO deal. Respect reduced motion.
+- **Done when:** the console looks and behaves like the reference prototype.
 
 ### Step 4: `/dashboard/inbox`
 - Rebuild it as layout pattern B, using the components in §4: conversation row, bubbles, composer and empty state.
 - Delete the email mock: the `mails` array, Sent, Drafts, Trash, and the sample messages in `inbox/[id]/page.tsx`.
-- **Done when:** the inbox reads and sends real messages.
+- **Done when:** the inbox works fully with mock data: open a chat, take over, reply, hand back.
 
 ### Step 5: `/dashboard/orders`
 - Build layout pattern D (rail) for today's orders and pattern C (ledger) for order history, with a toggle between them and status filters.
@@ -58,14 +76,8 @@ Do one step at a time. After each step, run lint and typecheck, summarize what c
 - **Status values:** use only the backend values in `DESIGN.md` §5: `pending, accepted, preparing, out_for_delivery, delivered, cancelled`. Never invent new ones.
 - **Money:** use `tenant.currency`. Never hardcode Rs or $.
 - **Colors:** use only the tokens. No raw Tailwind palette classes such as `bg-green-100` or `text-purple-800`, and no hex values in components.
-- **No fake data.** When a list is empty, show the empty state from §4.
-- **Not built yet:** these depend on backend work that doesn't exist. Leave a `// TODO(backend): <feature>` comment where each would go, and don't fake them:
-  - agent trace lines (tool calls aren't stored)
-  - Take over / Hand back (no takeover flag)
-  - "Needs you" escalation (no escalation tool)
-  - read ticks (the message ID is stored as `"pending"`)
-  - plan usage meter (no billing)
-  - WhatsApp update to the customer when an order status changes
-- **API calls:** go through `src/lib/axios-client.ts` and TanStack Query, the way the existing hooks do.
+- **Dummy data stays in mock files.** Never put dummy data in a component or page. Empty states (§4) must still work when a list is empty.
+- **Mark backend-only features.** Agent traces, takeover, escalation, read ticks, the usage meter and customer order updates exist only in mock mode for now. Mark the hook for each with `// TODO(backend): <what the API needs>` so they're easy to find later.
+- **API calls (real mode):** go through `src/lib/axios-client.ts` and TanStack Query, the way the existing hooks do.
 - **Other:** keep shadcn components and restyle them through tokens. Don't replace them. Every page must work at phone width and in dark mode.
 - **When unsure:** if `DESIGN.md` and the backend disagree, follow the backend and tell me about the mismatch.
