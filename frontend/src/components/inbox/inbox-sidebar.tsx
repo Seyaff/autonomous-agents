@@ -1,54 +1,54 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { SearchIcon } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
-import { cn } from "@/lib/utils"
-import { useConversations } from "@/hooks/inbox/use-conversations"
+import { Skeleton } from "@/components/ui/skeleton"
+import { ConversationRow } from "@/components/console/conversation-row"
+import { useQueue, type QueueGroups } from "@/hooks/console/use-queue"
 
-function relativeTime(iso: string) {
-  const diffMs = Date.now() - new Date(iso).getTime()
-  const minutes = Math.round(diffMs / 60000)
-  if (minutes < 1) return "now"
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  return `${Math.round(hours / 24)}d`
+const GROUP_ORDER: (keyof QueueGroups)[] = ["needs_you", "agent_handling", "resolved"]
+const GROUP_LABELS: Record<keyof QueueGroups, string> = {
+  needs_you: "Needs you",
+  agent_handling: "Agent handling",
+  resolved: "Resolved today",
 }
 
+const INBOX_PREFIX = "/dashboard/inbox/"
+
 export function InboxSidebar() {
+  const router = useRouter()
   const pathname = usePathname()
   const [search, setSearch] = React.useState("")
   const [unreadOnly, setUnreadOnly] = React.useState(false)
 
-  const { data, isLoading } = useConversations({
-    search: search || undefined,
-    limit: 50,
-  })
+  const { groups, isLoading } = useQueue(search || undefined)
 
-  const conversations = (data?.conversations ?? []).filter(
-    (c) => !unreadOnly || c.unread_count > 0
-  )
+  const filtered: QueueGroups = {
+    needs_you: groups.needs_you.filter((c) => !unreadOnly || c.unread_count > 0),
+    agent_handling: groups.agent_handling.filter((c) => !unreadOnly || c.unread_count > 0),
+    resolved: groups.resolved.filter((c) => !unreadOnly || c.unread_count > 0),
+  }
+  const total = filtered.needs_you.length + filtered.agent_handling.length + filtered.resolved.length
+
+  // decodeURIComponent is safe to apply even if usePathname() already
+  // decoded it — it's a no-op once there's no %XX left to unescape.
+  const selectedId = pathname.startsWith(INBOX_PREFIX)
+    ? decodeURIComponent(pathname.slice(INBOX_PREFIX.length))
+    : null
 
   return (
-    <div className="flex h-full w-[360px] shrink-0 flex-col border-r bg-sidebar">
-      <div className="flex shrink-0 flex-col gap-3 border-b p-4">
+    <div className="flex h-full w-full shrink-0 flex-col border-r border-border bg-sidebar md:w-[320px]">
+      <div className="flex shrink-0 flex-col gap-3 border-b border-border p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-medium">Inbox</h2>
           <Label className="flex items-center gap-2 text-sm">
             <span>Unread</span>
-            <Switch
-              checked={unreadOnly}
-              onCheckedChange={setUnreadOnly}
-              className="shadow-none"
-            />
+            <Switch checked={unreadOnly} onCheckedChange={setUnreadOnly} className="shadow-none" />
           </Label>
         </div>
         <div className="relative">
@@ -62,53 +62,39 @@ export function InboxSidebar() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex-1 overflow-y-auto">
         {isLoading ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="space-y-2 border-b p-4">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-full" />
-            </div>
-          ))
-        ) : conversations.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
-            <p className="text-sm font-medium">No conversations yet</p>
-            <p className="text-xs text-muted-foreground">
-              Messages from your customers on WhatsApp will show up here.
+          <div className="space-y-3 p-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full" />
+            ))}
+          </div>
+        ) : total === 0 ? (
+          <div className="flex h-full items-center justify-center p-6 text-center">
+            <p className="font-mono text-xs text-muted-foreground">
+              No conversations yet. They&apos;ll show up here once customers message you on WhatsApp.
             </p>
           </div>
         ) : (
-          conversations.map((conv) => {
-            const href = `/dashboard/inbox/${conv.conversation_id}`
-            const isActive = pathname === href
+          GROUP_ORDER.map((key) => {
+            const items = filtered[key]
+            if (items.length === 0) return null
             return (
-              <Link
-                key={conv.conversation_id}
-                href={href}
-                className={cn(
-                  "flex flex-col items-start gap-1.5 border-b p-4 text-sm leading-tight last:border-b-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
-                )}
-              >
-                <div className="flex w-full items-center gap-2">
-                  <span className="truncate font-medium">
-                    {conv.customer_name || conv.customer_phone}
-                  </span>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                    {relativeTime(conv.last_activity_at)}
-                  </span>
-                </div>
-                <div className="flex w-full items-center gap-2">
-                  <span className="line-clamp-1 flex-1 text-xs text-muted-foreground">
-                    {conv.last_message?.content ?? "No messages yet"}
-                  </span>
-                  {conv.unread_count > 0 && (
-                    <Badge className="h-5 min-w-5 shrink-0 justify-center rounded-full px-1.5 text-[10px]">
-                      {conv.unread_count}
-                    </Badge>
-                  )}
-                </div>
-              </Link>
+              <div key={key}>
+                <p className="sticky top-0 z-10 bg-sidebar px-3 pt-3 pb-1 font-mono text-[11px] tracking-[.08em] text-muted-foreground uppercase">
+                  {GROUP_LABELS[key]} · {items.length}
+                </p>
+                {items.map((c) => (
+                  <ConversationRow
+                    key={c.conversation_id}
+                    conversation={c}
+                    selected={c.conversation_id === selectedId}
+                    onSelect={() =>
+                      router.push(`/dashboard/inbox/${encodeURIComponent(c.conversation_id)}`)
+                    }
+                  />
+                ))}
+              </div>
             )
           })
         )}

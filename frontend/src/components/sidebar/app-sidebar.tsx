@@ -2,9 +2,16 @@
 
 import * as React from "react"
 import { usePathname } from "next/navigation"
-import { HomeIcon, InboxIcon } from "lucide-react"
+import {
+  BarChart3Icon,
+  BookOpenIcon,
+  HomeIcon,
+  InboxIcon,
+  ReceiptTextIcon,
+  SettingsIcon,
+} from "lucide-react"
 
-import { BrandHeader } from "@/components/sidebar/brand-header"
+import { TenantSwitcher } from "@/components/sidebar/tenant-switcher"
 import { NavMain, type NavMainItem } from "@/components/sidebar/nav-main"
 import { NavUser } from "@/components/sidebar/nav-user"
 import {
@@ -25,13 +32,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const unreadTotal = useUnreadTotal()
 
   const navMain: NavMainItem[] = [
-    { title: "Dashboard", url: "/dashboard", icon: <HomeIcon /> },
+    { title: "Live service", url: "/dashboard", icon: <HomeIcon /> },
     {
       title: "Inbox",
       url: "/dashboard/inbox",
       icon: <InboxIcon />,
       badge: unreadTotal > 0 ? String(unreadTotal) : undefined,
     },
+    { title: "Orders", url: "/dashboard/orders", icon: <ReceiptTextIcon /> },
+    { title: "Menu knowledge", url: "/dashboard/menu", icon: <BookOpenIcon /> },
+    { title: "Reports", url: "/dashboard/reports", icon: <BarChart3Icon /> },
+    { title: "Settings", url: "/dashboard/settings", icon: <SettingsIcon /> },
   ]
 
   const isInbox = pathname === INBOX_PREFIX || pathname.startsWith(`${INBOX_PREFIX}/`)
@@ -73,7 +84,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       {...props}
     >
       <SidebarHeader>
-        <BrandHeader />
+        <TenantSwitcher />
         <NavMain items={navMain} />
       </SidebarHeader>
       <SidebarContent />

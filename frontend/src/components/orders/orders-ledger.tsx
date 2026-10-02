@@ -25,16 +25,13 @@ import {
   ChevronRightIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
-  MoreVerticalIcon,
 } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
@@ -54,11 +51,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { StatusChip } from "@/components/console/status-chip"
+import { Ticket } from "@/components/console/ticket"
 import { cn } from "@/lib/utils"
-import { ORDER_STATUS_CONFIG, orderStatusBadge, type OrderStatus } from "@/lib/status"
-import { useOrders } from "@/hooks/orders/use-orders"
-import { useUpdateOrderStatus } from "@/hooks/orders/use-update-order-status"
-import type { Order } from "@/services/orders/orders.service"
+import { formatMoney } from "@/lib/currency"
+import { ORDER_STATUS_DISPLAY, type OrderStatus } from "@/lib/status"
+import type { RailOrder } from "@/hooks/console/use-rail"
 
 const STATUS_OPTIONS: OrderStatus[] = [
   "pending",
@@ -80,52 +79,46 @@ const features = tableFeatures({
   sortedRowModel: createSortedRowModel(),
 })
 
-const columnHelper = createColumnHelper<typeof features, Order>()
+const columnHelper = createColumnHelper<typeof features, RailOrder>()
 
-export function OrdersTable() {
-  const [statusFilter, setStatusFilter] = React.useState<string>("all")
-  const { data, isLoading } = useOrders({
-    status: statusFilter === "all" ? undefined : statusFilter,
-    limit: 100,
-  })
-  const { mutate: updateStatus } = useUpdateOrderStatus()
-
-  const orders = React.useMemo(() => data?.orders ?? [], [data])
-
+export function OrdersLedger({
+  orders,
+  currency,
+  isLoading,
+  onAdvance,
+}: {
+  orders: RailOrder[]
+  currency: string
+  isLoading: boolean
+  onAdvance: (order: RailOrder, next: OrderStatus) => void
+}) {
+  const [statusFilter, setStatusFilter] = React.useState<OrderStatus | "all">("all")
+  const [selected, setSelected] = React.useState<RailOrder | null>(null)
   const [rowSelection, setRowSelection] = React.useState({})
-  const [columnVisibility, setColumnVisibility] =
-    React.useState<ColumnVisibilityState>({})
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    []
-  )
+  const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>({})
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [pagination, setPagination] = React.useState<PaginationState>({
     pageIndex: 0,
     pageSize: 10,
   })
 
+  const filtered = React.useMemo(
+    () => (statusFilter === "all" ? orders : orders.filter((o) => o.status === statusFilter)),
+    [orders, statusFilter]
+  )
+
+  // Keep the open sheet in sync with the underlying order (e.g. after
+  // advancing its status from inside the sheet).
+  const selectedLive = selected ? filtered.find((o) => o.order_id === selected.order_id) ?? selected : null
+
   const columns = React.useMemo(
     () =>
       columnHelper.columns([
-        columnHelper.display({
-          id: "srNo",
-          header: "Sr No",
-          cell: ({ row }) => {
-            const index =
-              pagination.pageIndex * pagination.pageSize + row.index + 1
-            return (
-              <span className="text-sm tabular-nums text-muted-foreground">
-                {index}
-              </span>
-            )
-          },
-          enableSorting: false,
-          enableHiding: false,
-        }),
         columnHelper.accessor("order_id", {
-          header: "Order ID",
+          header: () => <span className="block w-full text-right">Order ID</span>,
           cell: ({ row }) => (
-            <span className="font-mono text-sm font-medium">
+            <span className="block text-right font-mono text-sm font-medium">
               {row.getValue("order_id")}
             </span>
           ),
@@ -135,12 +128,8 @@ export function OrdersTable() {
           header: "Customer",
           cell: ({ row }) => (
             <div className="flex flex-col">
-              <span className="text-sm font-medium">
-                {row.original.customer_name || "Unknown"}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {row.original.customer_phone}
-              </span>
+              <span className="text-sm font-medium">{row.original.customer_name || "Unknown"}</span>
+              <span className="text-xs text-muted-foreground">{row.original.customer_phone}</span>
             </div>
           ),
         }),
@@ -148,9 +137,7 @@ export function OrdersTable() {
           id: "items",
           header: "Items",
           cell: ({ row }) => {
-            const summary = row.original.items
-              .map((i) => `${i.quantity}x ${i.name}`)
-              .join(", ")
+            const summary = row.original.items.map((i) => `${i.quantity}x ${i.name}`).join(", ")
             return (
               <span className="line-clamp-1 max-w-60 text-sm text-muted-foreground">
                 {summary || "—"}
@@ -159,74 +146,43 @@ export function OrdersTable() {
           },
         }),
         columnHelper.accessor("total_amount", {
-          header: () => (
-            <span className="block w-full text-right">Total</span>
+          header: () => <span className="block w-full text-right">Total</span>,
+          cell: ({ row }) => (
+            <span className="block text-right font-mono text-sm font-medium tabular-nums">
+              {formatMoney(row.getValue("total_amount"), currency)}
+            </span>
           ),
-          cell: ({ row }) => {
-            const total = row.getValue("total_amount") as number
-            return (
-              <span className="block text-right font-medium tabular-nums">
-                ${total.toFixed(2)}
-              </span>
-            )
-          },
         }),
         columnHelper.accessor("status", {
           header: "Status",
           cell: ({ row }) => {
-            const { label, className } = orderStatusBadge(
-              row.getValue("status") as string
-            )
-            return (
-              <Badge
-                variant="outline"
-                className={cn("px-2 py-0.5 text-xs font-medium", className)}
-              >
-                {label}
-              </Badge>
-            )
+            const status = row.getValue("status") as OrderStatus
+            const { label, tone } = ORDER_STATUS_DISPLAY[status]
+            return <StatusChip tone={tone} label={label} />
           },
         }),
-        columnHelper.display({
-          id: "actions",
+        columnHelper.accessor("created_at", {
+          header: () => <span className="block w-full text-right">Placed</span>,
           cell: ({ row }) => (
-            <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted data-[state=open]:bg-muted">
-                <MoreVerticalIcon className="size-4" />
-                <span className="sr-only">Open menu</span>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                {STATUS_OPTIONS.filter((s) => s !== row.original.status).map(
-                  (s) => (
-                    <DropdownMenuItem
-                      key={s}
-                      onClick={() =>
-                        updateStatus({ orderId: row.original.order_id, status: s })
-                      }
-                    >
-                      Mark as {ORDER_STATUS_CONFIG[s].label}
-                    </DropdownMenuItem>
-                  )
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <span className="block text-right font-mono text-xs text-muted-foreground">
+              {new Date(row.getValue("created_at")).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
           ),
         }),
       ]),
-    [pagination.pageIndex, pagination.pageSize, updateStatus]
+    [currency]
   )
 
   const table = useTable({
     features,
-    data: orders,
+    data: filtered,
     columns,
-    state: {
-      sorting,
-      columnVisibility,
-      rowSelection,
-      columnFilters,
-      pagination,
-    },
+    state: { sorting, columnVisibility, rowSelection, columnFilters, pagination },
     getRowId: (row) => row.order_id,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
@@ -237,66 +193,65 @@ export function OrdersTable() {
   })
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Table toolbar */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight">
-            Recent Orders
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Orders your customers placed over WhatsApp.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select
-            value={statusFilter}
-            onValueChange={(value) => setStatusFilter(value ?? "all")}
+    <div className="flex flex-col gap-4 p-4">
+      {/* Filters sit above the table as chips, not a sidebar/select. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setStatusFilter("all")}
+            className={cn(
+              "rounded-[5px] border px-2 py-1 font-mono text-[11px] tracking-wide transition-colors",
+              statusFilter === "all"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
           >
-            <SelectTrigger className="w-44" size="sm">
-              <SelectValue placeholder="All statuses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {STATUS_OPTIONS.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {ORDER_STATUS_CONFIG[s].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex h-8 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium hover:bg-accent">
-              Columns
-              <ChevronDownIcon className="size-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              {table
-                .getAllColumns()
-                .filter(
-                  (column) =>
-                    typeof column.accessorFn !== "undefined" &&
-                    column.getCanHide()
-                )
-                .map((column) => (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    className="capitalize"
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) =>
-                      column.toggleVisibility(!!value)
-                    }
-                  >
-                    {column.id}
-                  </DropdownMenuCheckboxItem>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            All · {orders.length}
+          </button>
+          {STATUS_OPTIONS.map((s) => {
+            const { label, tone } = ORDER_STATUS_DISPLAY[s]
+            const count = orders.filter((o) => o.status === s).length
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatusFilter(s)}
+                className={cn(
+                  "rounded-[5px] transition-opacity",
+                  statusFilter === s ? "opacity-100" : "opacity-45 hover:opacity-80"
+                )}
+              >
+                <StatusChip tone={tone} label={`${label} · ${count}`} />
+              </button>
+            )
+          })}
         </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">
+            Columns
+            <ChevronDownIcon className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {table
+              .getAllColumns()
+              .filter((column) => typeof column.accessorFn !== "undefined" && column.getCanHide())
+              .map((column) => (
+                <DropdownMenuCheckboxItem
+                  key={column.id}
+                  className="capitalize"
+                  checked={column.getIsVisible()}
+                  onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                >
+                  {column.id}
+                </DropdownMenuCheckboxItem>
+              ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-lg border">
+      <div className="overflow-hidden rounded-lg border border-border">
         <Table>
           <TableHeader className="bg-muted/50">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -305,11 +260,9 @@ export function OrdersTable() {
                   <TableHead
                     key={header.id}
                     colSpan={header.colSpan}
-                    className="text-xs font-semibold tracking-wider text-muted-foreground uppercase"
+                    className="font-mono text-[11px] tracking-[.08em] text-muted-foreground uppercase"
                   >
-                    {header.isPlaceholder ? null : (
-                      <FlexRender header={header} />
-                    )}
+                    {header.isPlaceholder ? null : <FlexRender header={header} />}
                   </TableHead>
                 ))}
               </TableRow>
@@ -318,8 +271,8 @@ export function OrdersTable() {
           <TableBody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell colSpan={columns.length} className="h-12 py-3">
+                <TableRow key={i} className="h-11">
+                  <TableCell colSpan={columns.length} className="py-0">
                     <Skeleton className="h-4 w-full" />
                   </TableCell>
                 </TableRow>
@@ -329,10 +282,11 @@ export function OrdersTable() {
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="transition-colors hover:bg-muted/50"
+                  className="h-11 cursor-pointer transition-colors hover:bg-muted/50"
+                  onClick={() => setSelected(row.original)}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="py-3">
+                    <TableCell key={cell.id} className="py-0">
                       <FlexRender cell={cell} />
                     </TableCell>
                   ))}
@@ -342,7 +296,7 @@ export function OrdersTable() {
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="h-24 text-center text-muted-foreground"
+                  className="h-24 text-center font-mono text-xs text-muted-foreground"
                 >
                   No orders found.
                 </TableCell>
@@ -352,7 +306,6 @@ export function OrdersTable() {
         </Table>
       </div>
 
-      {/* Pagination */}
       <div className="flex items-center justify-between px-1">
         <div className="hidden text-sm text-muted-foreground lg:flex">
           {table.getFilteredSelectedRowModel().rows.length} of{" "}
@@ -363,10 +316,7 @@ export function OrdersTable() {
             <Label htmlFor="rows-per-page" className="text-sm font-medium">
               Rows per page
             </Label>
-            <Select
-              value={`${pagination.pageSize}`}
-              onValueChange={(value) => table.setPageSize(Number(value))}
-            >
+            <Select value={`${pagination.pageSize}`} onValueChange={(value) => table.setPageSize(Number(value))}>
               <SelectTrigger size="sm" className="w-20" id="rows-per-page">
                 <SelectValue />
               </SelectTrigger>
@@ -425,6 +375,23 @@ export function OrdersTable() {
           </div>
         </div>
       </div>
+
+      <Sheet open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle className="font-mono">{selected?.order_id}</SheetTitle>
+          </SheetHeader>
+          {selectedLive && (
+            <div className="px-4 pb-4">
+              <Ticket
+                order={selectedLive}
+                currency={currency}
+                onAdvance={(next) => onAdvance(selectedLive, next)}
+              />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

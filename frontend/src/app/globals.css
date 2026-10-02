@@ -7,9 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-plex-mono);
+  --font-heading: var(--font-display);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -46,100 +46,116 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Siyaf design system — status colors (the only hues on screen) and
+     paper tokens (receipt/ticket look), see frontend/DESIGN.md §2. */
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+  --color-need: var(--need);
+  --color-need-soft: var(--need-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-new: var(--new);
+  --color-new-soft: var(--new-soft);
+  --color-paper: var(--paper);
+  --color-paper-ink: var(--paper-ink);
+  --color-paper-muted: var(--paper-muted);
+  --color-paper-line: var(--paper-line);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Siyaf design system — DESIGN.md §2 */
+  --background: #e9ecf1;
+  --card: #ffffff;
+  --card-foreground: #131925;
+  --popover: #ffffff;
+  --popover-foreground: #131925;
+  --muted: #f3f5f8;
+  --muted-foreground: #5b6475;
+  --foreground: #131925;
+  --border: #dbe0e8;
+  --input: #dbe0e8;
+  --primary: #131925;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f5f8;
+  --secondary-foreground: #131925;
+  --accent: #f3f5f8;
+  --accent-foreground: #131925;
+  --ring: #131925;
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
 
-  /* Semantic status colors — one consistent, muted set used everywhere a
-     status badge is needed (orders, messages, conversations), instead of
-     picking a different raw Tailwind swatch per component. */
-  --status-neutral-bg: oklch(0.96 0 0);
-  --status-neutral-fg: oklch(0.4 0 0);
-  --status-info-bg: oklch(0.94 0.035 250);
-  --status-info-fg: oklch(0.42 0.1 254);
-  --status-warning-bg: oklch(0.95 0.06 85);
-  --status-warning-fg: oklch(0.45 0.12 70);
-  --status-success-bg: oklch(0.94 0.055 155);
-  --status-success-fg: oklch(0.4 0.1 155);
-  --status-danger-bg: oklch(0.94 0.05 25);
-  --status-danger-fg: oklch(0.45 0.16 25);
+  /* Status colors — the only accents. Each has a -soft background variant. */
+  --ai: #b87800;
+  --ai-soft: #fbf0d6;
+  --need: #c8372a;
+  --need-soft: #fbe5e1;
+  --ok: #1e7f4f;
+  --ok-soft: #dff2e7;
+  --new: #2c58c9;
+  --new-soft: #e2e9fb;
+
+  --destructive: var(--need);
+
+  /* Paper — ticket look, identical in both themes. */
+  --paper: #fffdf6;
+  --paper-ink: #1d1a14;
+  --paper-muted: #6e675a;
+  --paper-line: #d9d2c2;
+
+  /* Charts — derived from --foreground at decreasing opacity, per DESIGN.md. */
+  --chart-1: color-mix(in oklch, var(--foreground) 90%, transparent);
+  --chart-2: color-mix(in oklch, var(--foreground) 70%, transparent);
+  --chart-3: color-mix(in oklch, var(--foreground) 50%, transparent);
+  --chart-4: color-mix(in oklch, var(--foreground) 32%, transparent);
+  --chart-5: color-mix(in oklch, var(--foreground) 18%, transparent);
+
+  /* Sidebar chrome — follows the same neutral tokens (no separate palette),
+     so it re-themes automatically with the rest of the app. */
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--foreground);
+  --sidebar-primary-foreground: var(--card);
+  --sidebar-accent: var(--muted);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #0d1117;
+  --card: #151a23;
+  --card-foreground: #e5e9f0;
+  --popover: #151a23;
+  --popover-foreground: #e5e9f0;
+  --muted: #10151d;
+  --muted-foreground: #8d97a8;
+  --foreground: #e5e9f0;
+  --border: #252c39;
+  --input: #252c39;
+  --primary: #e5e9f0;
+  --primary-foreground: #0d1117;
+  --secondary: #10151d;
+  --secondary-foreground: #e5e9f0;
+  --accent: #10151d;
+  --accent-foreground: #e5e9f0;
+  --ring: #e5e9f0;
 
-  --status-neutral-bg: oklch(0.32 0 0);
-  --status-neutral-fg: oklch(0.85 0 0);
-  --status-info-bg: oklch(0.3 0.05 254);
-  --status-info-fg: oklch(0.85 0.06 254);
-  --status-warning-bg: oklch(0.32 0.07 70);
-  --status-warning-fg: oklch(0.86 0.09 85);
-  --status-success-bg: oklch(0.3 0.06 155);
-  --status-success-fg: oklch(0.85 0.09 155);
-  --status-danger-bg: oklch(0.32 0.08 25);
-  --status-danger-fg: oklch(0.86 0.1 25);
+  --ai: #f0b43c;
+  --ai-soft: #33270c;
+  --need: #f0705f;
+  --need-soft: #3a1c18;
+  --ok: #4cc488;
+  --ok-soft: #12301f;
+  --new: #7d9ef5;
+  --new-soft: #1a2545;
+
+  --destructive: var(--need);
+
+  --chart-1: color-mix(in oklch, var(--foreground) 90%, transparent);
+  --chart-2: color-mix(in oklch, var(--foreground) 70%, transparent);
+  --chart-3: color-mix(in oklch, var(--foreground) 50%, transparent);
+  --chart-4: color-mix(in oklch, var(--foreground) 32%, transparent);
+  --chart-5: color-mix(in oklch, var(--foreground) 18%, transparent);
 }
 
 @layer base {
@@ -199,4 +215,27 @@
 [data-state="collapsed"] [data-sidebar="group-action"],
 [data-state="collapsed"] [data-sidebar="menu-badge"] {
   transition: opacity 0.15s ease, transform 0.15s ease, margin 0.15s ease;
+}
+
+/* Console (pattern A) — ticket print-in and new-message row flash.
+   Used via the `motion-safe:` variant so prefers-reduced-motion disables
+   them automatically. */
+@keyframes print-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flash-ai {
+  0% {
+    background-color: var(--ai-soft);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
