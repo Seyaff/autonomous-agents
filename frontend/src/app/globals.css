@@ -128,3 +128,50 @@
     @apply font-sans;
   }
 }
+
+/* Primary sidebar hover-expand when collapsed (icons only) */
+[data-sidebar="sidebar-wrapper"]:has([data-state="collapsed"]:hover) {
+  --sidebar-width: 16rem;
+}
+
+[data-state="collapsed"]:hover {
+  --sidebar-width: 16rem;
+}
+
+[data-state="collapsed"]:hover [data-sidebar="group-label"],
+[data-state="collapsed"]:hover [data-sidebar="menu-button"] span,
+[data-state="collapsed"]:hover [data-sidebar="menu-button"] > *:not(svg) {
+  opacity: 1;
+  width: auto;
+  white-space: nowrap;
+}
+
+[data-state="collapsed"]:hover [data-sidebar="group-label"] {
+  margin-top: 0;
+}
+
+[data-state="collapsed"]:hover [data-sidebar="group-action"] {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+[data-state="collapsed"]:hover [data-sidebar="menu-badge"] {
+  opacity: 1;
+  right: 1rem;
+}
+
+/* Smooth transition for hover expand */
+[data-sidebar="sidebar"] {
+  transition: width 0.2s ease, min-width 0.2s ease;
+}
+
+[data-sidebar="sidebar-inner"] {
+  transition: opacity 0.15s ease;
+}
+
+[data-state="collapsed"] [data-sidebar="group-label"],
+[data-state="collapsed"] [data-sidebar="menu-button"] span,
+[data-state="collapsed"] [data-sidebar="group-action"],
+[data-state="collapsed"] [data-sidebar="menu-badge"] {
+  transition: opacity 0.15s ease, transform 0.15s ease, margin 0.15s ease;
+}
