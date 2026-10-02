@@ -2,192 +2,330 @@
 
 import * as React from "react"
 
-
+import { NavFavorites } from "@/components/sidebar/nav-favorites"
+import { NavMain } from "@/components/sidebar/nav-main"
+import { NavSecondary } from "@/components/sidebar/nav-secondary"
+import { NavWorkspaces } from "@/components/sidebar/nav-workspaces"
+import { TeamSwitcher } from "@/components/sidebar/team-switcher"
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
+  SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, ListIcon, ChartBarIcon, FolderIcon, UsersIcon, CameraIcon, FileTextIcon, Settings2Icon, CircleHelpIcon, SearchIcon, DatabaseIcon, FileChartColumnIcon, FileIcon, CommandIcon } from "lucide-react"
-import { NavDocuments } from "./nav-documents"
-import { NavMain } from "./nav-main"
-import { NavSecondary } from "./nav-secondary"
+import { TerminalIcon, AudioLinesIcon, SearchIcon, SparklesIcon, HomeIcon, InboxIcon, CalendarIcon, Settings2Icon, BlocksIcon, Trash2Icon, MessageCircleQuestionIcon } from "lucide-react"
+import { usePathname } from "next/navigation"
 import { NavUser } from "./nav-user"
 
+// This is sample data.
 const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
-  navMain: [
+  teams: [
     {
-      title: "Restaurant Dashboard",
-      url: "/dashboard",
-      icon: (
-        <LayoutDashboardIcon />
+      name: "Acme Inc",
+      logo: (
+        <TerminalIcon
+        />
       ),
+      plan: "Enterprise",
     },
     {
-      title: "Founder Growth Engine",
-      url: "/founder",
-      icon: (
-        <ChartBarIcon />
+      name: "Acme Corp.",
+      logo: (
+        <AudioLinesIcon
+        />
       ),
+      plan: "Startup",
     },
     {
-      title: "Restaurant Onboarding",
-      url: "/onboarding",
-      icon: (
-        <ListIcon />
+      name: "Evil Corp.",
+      logo: (
+        <TerminalIcon
+        />
       ),
-    },
-    {
-      title: "Settings & Knowledge",
-      url: "/settings",
-      icon: (
-        <FolderIcon />
-      ),
+      plan: "Free",
     },
   ],
-  navClouds: [
+  navMain: [
     {
-      title: "Capture",
+      title: "Dashboard",
+      url: "/dashboard",
       icon: (
-        <CameraIcon
+        <HomeIcon
         />
       ),
       isActive: true,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
     },
     {
-      title: "Proposal",
+      title: "Inbox",
+      url: "/dashboard/inbox",
       icon: (
-        <FileTextIcon
+        <InboxIcon
         />
       ),
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Prompts",
-      icon: (
-        <FileTextIcon
-        />
-      ),
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
+      badge: "10",
     },
   ],
   navSecondary: [
     {
+      title: "Calendar",
+      url: "#",
+      icon: (
+        <CalendarIcon
+        />
+      ),
+    },
+    {
       title: "Settings",
-      url: "/settings",
+      url: "#",
       icon: (
         <Settings2Icon
         />
       ),
     },
     {
-      title: "Get Help",
+      title: "Templates",
       url: "#",
       icon: (
-        <CircleHelpIcon
+        <BlocksIcon
         />
       ),
     },
     {
-      title: "Search",
+      title: "Trash",
       url: "#",
       icon: (
-        <SearchIcon
+        <Trash2Icon
+        />
+      ),
+    },
+    {
+      title: "Help",
+      url: "#",
+      icon: (
+        <MessageCircleQuestionIcon
         />
       ),
     },
   ],
-  documents: [
+  favorites: [
     {
-      name: "Data Library",
+      name: "Project Management & Task Tracking",
       url: "#",
-      icon: (
-        <DatabaseIcon
-        />
-      ),
+      emoji: "📊",
     },
     {
-      name: "Reports",
+      name: "Family Recipe Collection & Meal Planning",
       url: "#",
-      icon: (
-        <FileChartColumnIcon
-        />
-      ),
+      emoji: "🍳",
     },
     {
-      name: "Word Assistant",
+      name: "Fitness Tracker & Workout Routines",
       url: "#",
-      icon: (
-        <FileIcon
-        />
-      ),
+      emoji: "💪",
+    },
+    {
+      name: "Book Notes & Reading List",
+      url: "#",
+      emoji: "📚",
+    },
+    {
+      name: "Sustainable Gardening Tips & Plant Care",
+      url: "#",
+      emoji: "🌱",
+    },
+    {
+      name: "Language Learning Progress & Resources",
+      url: "#",
+      emoji: "🗣️",
+    },
+    {
+      name: "Home Renovation Ideas & Budget Tracker",
+      url: "#",
+      emoji: "🏠",
+    },
+    {
+      name: "Personal Finance & Investment Portfolio",
+      url: "#",
+      emoji: "💰",
+    },
+    {
+      name: "Movie & TV Show Watchlist with Reviews",
+      url: "#",
+      emoji: "🎬",
+    },
+    {
+      name: "Daily Habit Tracker & Goal Setting",
+      url: "#",
+      emoji: "✅",
+    },
+  ],
+  workspaces: [
+    {
+      name: "Personal Life Management",
+      emoji: "🏠",
+      pages: [
+        {
+          name: "Daily Journal & Reflection",
+          url: "#",
+          emoji: "📔",
+        },
+        {
+          name: "Health & Wellness Tracker",
+          url: "#",
+          emoji: "🍏",
+        },
+        {
+          name: "Personal Growth & Learning Goals",
+          url: "#",
+          emoji: "🌟",
+        },
+      ],
+    },
+    {
+      name: "Professional Development",
+      emoji: "💼",
+      pages: [
+        {
+          name: "Career Objectives & Milestones",
+          url: "#",
+          emoji: "🎯",
+        },
+        {
+          name: "Skill Acquisition & Training Log",
+          url: "#",
+          emoji: "🧠",
+        },
+        {
+          name: "Networking Contacts & Events",
+          url: "#",
+          emoji: "🤝",
+        },
+      ],
+    },
+    {
+      name: "Creative Projects",
+      emoji: "🎨",
+      pages: [
+        {
+          name: "Writing Ideas & Story Outlines",
+          url: "#",
+          emoji: "✍️",
+        },
+        {
+          name: "Art & Design Portfolio",
+          url: "#",
+          emoji: "🖼️",
+        },
+        {
+          name: "Music Composition & Practice Log",
+          url: "#",
+          emoji: "🎵",
+        },
+      ],
+    },
+    {
+      name: "Home Management",
+      emoji: "🏡",
+      pages: [
+        {
+          name: "Household Budget & Expense Tracking",
+          url: "#",
+          emoji: "💰",
+        },
+        {
+          name: "Home Maintenance Schedule & Tasks",
+          url: "#",
+          emoji: "🔧",
+        },
+        {
+          name: "Family Calendar & Event Planning",
+          url: "#",
+          emoji: "📅",
+        },
+      ],
+    },
+    {
+      name: "Travel & Adventure",
+      emoji: "🧳",
+      pages: [
+        {
+          name: "Trip Planning & Itineraries",
+          url: "#",
+          emoji: "🗺️",
+        },
+        {
+          name: "Travel Bucket List & Inspiration",
+          url: "#",
+          emoji: "🌎",
+        },
+        {
+          name: "Travel Journal & Photo Gallery",
+          url: "#",
+          emoji: "📸",
+        },
+      ],
     },
   ],
 }
+
+
+const INBOX_PREFIX = "/dashboard/inbox"
+
+// ...data definition...
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { setOpen } = useSidebar()
+  const pathname = usePathname()
+
+  const isInbox = pathname === INBOX_PREFIX || pathname.startsWith(`${INBOX_PREFIX}/`)
+  const prevPathname = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    const prev = prevPathname.current
+    const wasInbox =
+      prev === INBOX_PREFIX || (prev?.startsWith(`${INBOX_PREFIX}/`) ?? false)
+
+    // Entering inbox → collapse
+    if (isInbox && !wasInbox) {
+      setOpen(false)
+    }
+
+    // Leaving inbox → expand
+    if (!isInbox && wasInbox) {
+      setOpen(true)
+    }
+
+    prevPathname.current = pathname
+  }, [isInbox, pathname, setOpen])
+
+  // Hover-to-expand only while in inbox
+  const handleMouseEnter = () => {
+    if (isInbox) setOpen(true)
+  }
+
+  const handleMouseLeave = () => {
+    if (isInbox) setOpen(false)
+  }
+
   return (
-    <Sidebar collapsible="offcanvas" {...props}>
+    <Sidebar
+      collapsible="icon"
+      className="border-r-0 fixed left-0 top-0 z-50 h-svh"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      {...props}
+    >
       <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="data-[slot=sidebar-menu-button]:p-1.5!"
-              render={<a href="#" />}
-            >
-              <CommandIcon className="size-5!" />
-              <span className="text-base font-semibold">Acme Inc.</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
-      <SidebarContent>
+        <TeamSwitcher teams={data.teams} />
         <NavMain items={data.navMain} />
-        <NavDocuments items={data.documents} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
-      </SidebarContent>
+      </SidebarHeader>
+      <SidebarContent>{/* ... */}</SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser />
       </SidebarFooter>
+      <SidebarRail />
     </Sidebar>
   )
 }
