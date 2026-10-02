@@ -24,14 +24,13 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
 )
-from langchain_groq import ChatGroq
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
 from core.database import get_database, get_checkpointer
-from core.settings import settings
+from core.llm import get_chat_model
 from agents.customer_support.agent import run_customer_support_turn
 
 logger = logging.getLogger(__name__)
@@ -42,11 +41,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # LLM for routing only
 # ---------------------------------------------------------------------------
-router_llm = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0.0,
-    groq_api_key=settings.GROQ_API_KEY,
-)
+router_llm = get_chat_model(purpose="router", temperature=0.0)
 
 AgentName = Literal["customer_support", "lead_generation", "pitch_and_outreach"]
 ALL_AGENTS: List[str] = ["customer_support", "lead_generation", "pitch_and_outreach"]

@@ -20,7 +20,7 @@ class AgentMetaSchema(BaseModel):
 
 class MessagePreviewSchema(BaseModel):
     content: str
-    sender: Literal["customer", "agent", "system"]
+    sender: Literal["customer", "agent", "human", "system"]
     timestamp: datetime
     type: Literal["text", "image", "document", "audio", "location", "template", "interactive"]
 
@@ -70,12 +70,12 @@ class MessageSchema(BaseModel):
     wamid: Optional[str] = None
     conversation_id: str
     tenant_id: str
-    sender: Literal["customer", "agent", "system"]
+    sender: Literal["customer", "agent", "human", "system"]
     sender_phone: Optional[str] = None
     content: str
     type: Literal["text", "image", "document", "audio", "location", "template", "interactive"]
     media: Optional[MediaInfoResponse] = None
-    status: Literal["sending", "sent", "delivered", "read", "failed"]
+    status: Literal["received", "sending", "sent", "delivered", "read", "failed"]
     agent_metadata: Optional[AgentMetaSchema] = None
     created_at: datetime
     delivered_at: Optional[datetime] = None

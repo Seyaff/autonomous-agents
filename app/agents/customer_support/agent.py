@@ -5,7 +5,6 @@ import asyncio
 import weakref
 from typing import Any, Dict, List
 
-from langchain_groq import ChatGroq
 from langchain_core.messages import (
     SystemMessage,
     HumanMessage,
@@ -15,7 +14,7 @@ from langchain_core.messages import (
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.state import CompiledStateGraph
 
-from core.settings import settings
+from core.llm import get_chat_model
 from memory.mongo_checkpointer import MongoDBCkptSaver
 from memory.context_builder import build_agent_context, trigger_summarization_if_needed
 from agents.customer_support.tools import (
@@ -34,11 +33,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # LLM + Tools
 # ---------------------------------------------------------------------------
-model = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0.1,
-    groq_api_key=settings.GROQ_API_KEY,
-)
+model = get_chat_model(purpose="customer_support", temperature=0.1)
 
 tools = [
     search_uploaded_documents,

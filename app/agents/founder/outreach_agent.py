@@ -2,20 +2,16 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
-from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from core.database import get_database
 from core.settings import settings
+from core.llm import get_chat_model
 from core.whatsapp_utils import send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 
-llm = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0.3,
-    groq_api_key=settings.GROQ_API_KEY
-)
+llm = get_chat_model(purpose="outreach", temperature=0.3)
 
 
 async def draft_personalized_pitch(

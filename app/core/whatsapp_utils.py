@@ -1,9 +1,25 @@
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any, Tuple
 import httpx
 from core.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_tenant_whatsapp_credentials(tenant: Optional[Dict[str, Any]]) -> Tuple[str, str]:
+    """
+    Returns (access_token, phone_number_id) for a tenant.
+
+    Prefers the tenant's own connected WhatsApp (set via
+    /tenant/meta-embedded-signup); falls back to the shared .env test
+    credentials while Meta review/testing is pending — this is the one
+    place that fallback lives, so flipping a tenant to real per-tenant
+    credentials later needs no other code changes.
+    """
+    tenant = tenant or {}
+    token = tenant.get("whatsapp_access_token") or settings.WHATSAPP_TOKEN
+    phone_number_id = tenant.get("phone_number_id") or settings.WHATSAPP_PHONE_NUMBER_ID
+    return token, phone_number_id
 
 
 async def download_whatsapp_media(media_id: str, token: Optional[str] = None) -> bytes:

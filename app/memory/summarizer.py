@@ -1,10 +1,9 @@
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
-from langchain_groq import ChatGroq
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 
-from core.settings import settings
+from core.llm import get_chat_model
 from core.database import get_database
 from memory.models import ConversationSummary, SummarizationTrigger
 
@@ -28,11 +27,7 @@ Return as JSON with keys: summary, key_entities, topics, sentiment, decisions"""
 
 class ConversationSummarizer:
     def __init__(self):
-        self.llm = ChatGroq(
-            model="openai/llama-3.1-8b-instant",
-            temperature=0.1,
-            groq_api_key=settings.GROQ_API_KEY,
-        )
+        self.llm = get_chat_model(purpose="summarizer", temperature=0.1)
         self.db = None
         self.SUMMARIZE_EVERY_N_TURNS = 6
         self.MAX_TOKENS_BEFORE_SUMMARY = 3000

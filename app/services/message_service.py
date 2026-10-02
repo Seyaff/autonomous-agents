@@ -13,22 +13,17 @@ from models.inbox import (
     MediaInfo,
     AgentMeta,
 )
-from core.ws_events import WSEvent
+from schemas.ws_events import WSEvent
+from core.ws_manager import ws_manager as _ws_manager
 from services.email_service import gmail_service
 
 logger = logging.getLogger(__name__)
 
 
 class MessageService:
-    def __init__(self):
-        self._ws_manager = None
-
     @property
     def ws_manager(self):
-        if self._ws_manager is None:
-            from core.ws_inbox import ws_inbox_manager
-            self._ws_manager = ws_inbox_manager
-        return self._ws_manager
+        return _ws_manager
 
     # ================================================================
     # Inbound Message Processing (Customer -> Agent)
@@ -374,8 +369,7 @@ class MessageService:
             "last_activity_at": conversation.last_activity_at.isoformat(),
         }
 
-
-async def _send_new_message_email(
+    async def _send_new_message_email(
         self,
         tenant_id: str,
         customer_name: str,
@@ -389,15 +383,15 @@ async def _send_new_message_email(
             tenant = await db.tenants.find_one({"tenant_id": tenant_id})
             if not tenant:
                 return
-            
+
             owner_id = tenant.get("owner_id")
             if not owner_id:
                 return
-            
-            user = await get_database().users.find_one({"user_id": owner_id})
+
+            user = await db.users.find_one({"user_id": owner_id})
             if not user or not user.get("email"):
                 return
-            
+
             # Send email via Gmail API
             gmail_service.send_new_message_notification(
                 to_email=user["email"],

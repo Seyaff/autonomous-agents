@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from pydantic import BaseModel, Field
 
 from core.database import get_database
-from middlewares.auth_middleware import get_current_user
+from middlewares.auth_middleware import require_owner
 from services.knowledge_ingestion import (
     ingest_pdf_bytes_for_tenant,
     ingest_text_knowledge_for_tenant,
@@ -29,7 +29,7 @@ class SearchTestPayload(BaseModel):
 @knowledge_router.post("/upload-pdf")
 async def upload_pdf_knowledge(
     file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_owner)
 ):
     """
     Uploads a menu PDF, policy document, or pricing sheet,
@@ -69,7 +69,7 @@ async def upload_pdf_knowledge(
 @knowledge_router.post("/add-text")
 async def add_text_knowledge(
     payload: TextKnowledgePayload,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_owner)
 ):
     """
     Directly adds structured text knowledge (e.g. deals, allergen alerts, FAQs)
@@ -97,7 +97,7 @@ async def add_text_knowledge(
 
 @knowledge_router.get("")
 async def list_tenant_knowledge(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
     db = Depends(get_database)
 ):
     """Lists all active knowledge documents, menus, and text snippets for the restaurant."""
@@ -123,7 +123,7 @@ async def list_tenant_knowledge(
 @knowledge_router.delete("/{doc_id}")
 async def delete_tenant_knowledge(
     doc_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
     db = Depends(get_database)
 ):
     """Deletes a knowledge document reference from MongoDB."""
@@ -138,7 +138,7 @@ async def delete_tenant_knowledge(
 @knowledge_router.post("/test-search")
 async def test_search_knowledge(
     payload: SearchTestPayload,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_owner)
 ):
     """
     Enables restaurant owners to test-query their Pinecone knowledge base directly

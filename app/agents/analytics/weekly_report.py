@@ -1,21 +1,18 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
-from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from core.database import get_database
 from core.settings import settings
+from core.llm import get_chat_model
 from core.whatsapp_utils import send_whatsapp_message
-from core.events import manager
+from core.ws_manager import ws_manager
+from schemas.ws_events import WSEvent
 
 logger = logging.getLogger(__name__)
 
-llm = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0.3,
-    groq_api_key=settings.GROQ_API_KEY
-)
+llm = get_chat_model(purpose="weekly_report", temperature=0.3)
 
 
 async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
@@ -163,9 +160,9 @@ Format cleanly for WhatsApp reading with bold headers and bullet points.
             )
 
     # Broadcast event to frontend dashboard
-    await manager.broadcast_to_tenant(
-        tenant_id=tenant_id,
-        message={"event": "report.weekly_generated", "data": report_doc}
+    await ws_manager.broadcast_to_tenant(
+        tenant_id,
+        WSEvent(type="report.weekly_generated", payload={"report": report_doc}),
     )
 
     return report_doc

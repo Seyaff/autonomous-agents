@@ -7,19 +7,15 @@ from typing import List, Dict, Any, Optional
 import httpx
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from core.database import get_database
 from core.settings import settings
+from core.llm import get_chat_model
 
 logger = logging.getLogger(__name__)
 
-llm = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0.2,
-    groq_api_key=settings.GROQ_API_KEY
-)
+llm = get_chat_model(purpose="lead_research", temperature=0.2)
 
 
 async def search_leads_via_tavily_or_web(query: str, max_results: int = 15) -> List[Dict[str, Any]]:

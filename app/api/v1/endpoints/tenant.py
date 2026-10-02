@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from core.database import get_database
 from core.settings import settings
-from middlewares.auth_middleware import get_current_user
+from middlewares.auth_middleware import require_owner, require_owner_role
 from schemas.models import CreateTenantRequest
 
 # ---- pick the module you actually have ----
@@ -55,7 +55,7 @@ class TenantUpdatePayload(BaseModel):
 async def create_tenant(
     payload: CreateTenantRequest,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner_role),
 ):
     """Creates a new restaurant tenant and links it to the authenticated owner."""
     slug = payload.business_name.lower().replace(" ", "-")[:20]
@@ -118,7 +118,7 @@ async def create_tenant(
 @tenant_routes.get("/current")
 async def get_current_tenant(
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
 ):
     """Retrieves the active tenant details for the logged-in owner."""
     tenant_id = current_user.get("active_tenant_id")
@@ -141,7 +141,7 @@ async def get_current_tenant(
 async def update_current_tenant(
     payload: TenantUpdatePayload,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
 ):
     """Updates operational settings for the current active tenant."""
     tenant_id = current_user.get("active_tenant_id")
@@ -174,7 +174,7 @@ async def update_current_tenant(
 async def connect_meta_whatsapp(
     payload: MetaEmbeddedSignupPayload,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
 ):
     """
     Exchanges Meta Embedded Signup authorization code for a long-lived access token,
@@ -234,7 +234,7 @@ async def connect_meta_whatsapp(
 async def upload_menu_pdf(
     file: UploadFile = File(...),
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
 ):
     """
     Accepts a PDF menu upload from the onboarding/dashboard and indexes it into

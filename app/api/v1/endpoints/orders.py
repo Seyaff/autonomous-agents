@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from core.database import get_database
 from core.events import broadcast_order_update
-from middlewares.auth_middleware import get_current_user
+from middlewares.auth_middleware import require_owner
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ async def list_orders(
     status_filter: Optional[str] = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=100),
     skip: int = Query(0, ge=0),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
     db = Depends(get_database)
 ):
     """Lists orders for the authenticated restaurant owner's active tenant."""
@@ -57,7 +57,7 @@ async def list_orders(
 
 @order_router.get("/stats/summary")
 async def get_orders_summary(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
     db = Depends(get_database)
 ):
     """Calculates order counts, revenue, and active tickets for dashboard metric cards."""
@@ -119,7 +119,7 @@ async def get_orders_summary(
 @order_router.get("/{order_id}")
 async def get_order_by_id(
     order_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
     db = Depends(get_database)
 ):
     """Retrieves single order details."""
@@ -145,7 +145,7 @@ async def get_order_by_id(
 async def update_order_status(
     order_id: str,
     payload: OrderStatusUpdate,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
     db = Depends(get_database)
 ):
     """Updates order status from the dashboard and broadcasts real-time WebSocket event."""

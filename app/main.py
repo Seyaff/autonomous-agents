@@ -1,4 +1,13 @@
 import os
+import sys
+
+# Windows consoles default to a legacy codepage (cp1252) that can't encode
+# the emoji used in several log/print lines throughout this app — without
+# this, a single such line crashes app startup with UnicodeEncodeError.
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter

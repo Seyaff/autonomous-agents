@@ -1,15 +1,5 @@
 import os
 
-# --- TEMP DEBUG: runs before anything else ---
-print("=== ENV DEBUG ===")
-print("REDIS_URI in os.environ:", "REDIS_URI" in os.environ)
-print("REDIS_URL in os.environ:", "REDIS_URL" in os.environ)
-print("REDIS_URI value prefix:", os.environ.get("REDIS_URI", "<not set>")[:30])
-print("REDIS_URL value prefix:", os.environ.get("REDIS_URL", "<not set>")[:30])
-print("Total env vars:", len(os.environ))
-print("=================")
-# --- END TEMP DEBUG ---
-
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19,8 +9,17 @@ class Settings(BaseSettings):
     MONGO_URI: str
     DATABASE_NAME: str
 
-    GROQ_API_KEY: str
     PINECONE_API_KEY: str
+
+    # --- LLM provider routing (dev: groq, prod: openai) ---
+    LLM_PROVIDER: str = Field(
+        default="groq",
+        description="Which LLM provider agents use: 'groq' or 'openai'.",
+    )
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4.1"
 
     WHATSAPP_VERIFY_TOKEN: str = Field(
         validation_alias=AliasChoices(
@@ -48,10 +47,14 @@ class Settings(BaseSettings):
     SESSION_SECRET_KEY: str = "default_session_secret_key"
     JWT_ALGORITHM: str = "HS256"
 
+    # One-time secret used to bootstrap the single FOUNDER account.
+    # Unset/blank disables the bootstrap endpoint entirely.
+    FOUNDER_BOOTSTRAP_SECRET: str = ""
+
     TAVILY_API_KEY: str = ""
     APIFY_API_TOKEN: str = ""
-    META_APP_ID: str = ""
-    META_APP_SECRET: str = ""
+    META_APP_ID: str = Field(default="", validation_alias=AliasChoices("APP_ID", "META_APP_ID"))
+    META_APP_SECRET: str = Field(default="", validation_alias=AliasChoices("APP_SECRET", "META_APP_SECRET"))
 
     # Accepts either REDIS_URI or REDIS_URL from env
     REDIS_URI: str = Field(

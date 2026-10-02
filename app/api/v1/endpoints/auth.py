@@ -41,6 +41,13 @@ class EmailLoginRequest(BaseModel):
     password: str
 
 
+class FounderBootstrapRequest(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=60)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    secret: str = Field(..., description="Must match the FOUNDER_BOOTSTRAP_SECRET env var")
+
+
 # ------------------ EMAIL / PASSWORD SIGNUP & LOGIN ------------------
 
 @auth_routes.post("/signup")
@@ -134,6 +141,74 @@ async def login_with_email(payload: EmailLoginRequest, response: Response, db=De
             "active_tenant_id": user.get("active_tenant_id"),
         },
         "token": access_token
+    }
+
+
+@auth_routes.post("/bootstrap-founder")
+async def bootstrap_founder(
+    payload: FounderBootstrapRequest, response: Response, db=Depends(get_database)
+):
+    """
+    One-time setup route that creates the single FOUNDER account. There is
+    no public founder signup — this is it, and it permanently disables
+    itself the moment a FOUNDER account exists.
+    """
+    if not settings.FOUNDER_BOOTSTRAP_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Founder bootstrap is disabled.",
+        )
+    if payload.secret != settings.FOUNDER_BOOTSTRAP_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid bootstrap secret.",
+        )
+
+    users = db["users"]
+
+    if await users.find_one({"role": "FOUNDER"}):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A founder account already exists.",
+        )
+
+    email_clean = payload.email.strip().lower()
+    if await users.find_one({"email": email_clean}):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email address already exists.",
+        )
+
+    hashed_password = bcrypt.hashpw(payload.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    user_id = f"usr_{str(uuid.uuid4())[:8]}"
+
+    new_user = {
+        "user_id": user_id,
+        "full_name": payload.full_name.strip(),
+        "email": email_clean,
+        "password": hashed_password,
+        "role": "FOUNDER",
+        "is_onboarded": True,
+        "active_tenant_id": None,
+        "tenants": [],
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await users.insert_one(new_user)
+
+    access_token = generate_access_token(user_id)
+    set_access_token_cookie(response=response, token=access_token)
+
+    return {
+        "status": "success",
+        "message": "Founder account created.",
+        "user": {
+            "user_id": user_id,
+            "full_name": new_user["full_name"],
+            "email": email_clean,
+            "role": "FOUNDER",
+        },
+        "token": access_token,
     }
 
 

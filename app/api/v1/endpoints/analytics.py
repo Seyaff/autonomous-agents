@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.database import get_database
-from middlewares.auth_middleware import get_current_user
+from middlewares.auth_middleware import require_owner
 from agents.analytics.weekly_report import compile_and_send_weekly_report, generate_7day_analytics
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ analytics_router = APIRouter(prefix="/analytics", tags=["Analytics & BI"])
 
 @analytics_router.get("/7day-summary")
 async def get_7day_summary(
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_owner)
 ):
     """Calculates live trailing 7-day operational & revenue metrics for active tenant."""
     tenant_id = current_user.get("active_tenant_id")
@@ -26,7 +26,7 @@ async def get_7day_summary(
 
 @analytics_router.get("/weekly-reports")
 async def list_weekly_reports(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_owner),
     db = Depends(get_database)
 ):
     """Lists past autonomous weekly executive reports for the active tenant."""
@@ -46,7 +46,7 @@ async def list_weekly_reports(
 
 @analytics_router.post("/weekly/generate")
 async def trigger_weekly_report(
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_owner)
 ):
     """
     Manually triggers the 7-Day Autopilot Business Intelligence Agent.

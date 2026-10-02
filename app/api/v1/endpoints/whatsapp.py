@@ -15,7 +15,11 @@ from pymongo.errors import DuplicateKeyError
 
 from core.settings import settings
 from core.database import get_database
-from core.whatsapp_utils import download_whatsapp_media, send_whatsapp_message
+from core.whatsapp_utils import (
+    download_whatsapp_media,
+    send_whatsapp_message,
+    resolve_tenant_whatsapp_credentials,
+)
 from services.pdf_ingestion import process_and_store_pdf_bytes
 from agents.customer_support.agent import run_customer_support_turn
 from services.message_service import message_service
@@ -227,8 +231,7 @@ async def receive_meta_webhook(
         return {"status": "no_tenant_configured"}
 
     tenant_id = tenant.get("tenant_id", "default_tenant")
-    tenant_token = settings.WHATSAPP_TOKEN
-    tenant_phone_id = settings.WHATSAPP_PHONE_NUMBER_ID
+    tenant_token, tenant_phone_id = resolve_tenant_whatsapp_credentials(tenant)
 
     # Status updates (delivered/read receipts) have no "messages" key — ignore.
     if not messages:

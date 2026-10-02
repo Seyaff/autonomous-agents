@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from core.database import get_database
-from middlewares.auth_middleware import get_current_user
+from middlewares.auth_middleware import require_founder
 from agents.founder.lead_generator import run_autonomous_lead_pipeline
 from agents.founder.outreach_agent import draft_personalized_pitch, process_inbound_lead_reply
 
@@ -36,7 +36,7 @@ class LeadReplyRequest(BaseModel):
 @founder_router.post("/lead-hunt")
 async def trigger_autonomous_lead_hunt(
     payload: LeadHuntRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_founder),
     db = Depends(get_database)
 ):
     """
@@ -57,7 +57,7 @@ async def trigger_autonomous_lead_hunt(
 
 @founder_router.get("/campaigns")
 async def list_founder_campaigns(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_founder),
     db = Depends(get_database)
 ):
     """Lists all past lead hunting campaigns with metrics and export links."""
@@ -74,7 +74,7 @@ async def list_founder_campaigns(
 @founder_router.get("/campaigns/{campaign_id}/export")
 async def download_campaign_excel(
     campaign_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_founder),
     db = Depends(get_database)
 ):
     """Downloads the generated Excel spreadsheet (.xlsx) for the campaign."""
@@ -97,7 +97,7 @@ async def download_campaign_excel(
 @founder_router.post("/outreach/draft")
 async def draft_outreach_pitch(
     payload: DraftPitchRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_founder)
 ):
     """Drafts personalized cold email and WhatsApp outreach for a specific lead."""
     founder_name = current_user.get("full_name", "Founder")
@@ -113,6 +113,7 @@ async def draft_outreach_pitch(
 @founder_router.post("/reply-handler")
 async def handle_prospect_reply(
     payload: LeadReplyRequest,
+    current_user: dict = Depends(require_founder),
     db = Depends(get_database)
 ):
     """

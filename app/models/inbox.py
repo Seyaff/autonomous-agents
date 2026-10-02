@@ -37,7 +37,7 @@ class AgentMeta(BaseModel):
 
 class MessagePreview(BaseModel):
     content: str
-    sender: Literal["customer", "agent", "system"]
+    sender: Literal["customer", "agent", "human", "system"]
     timestamp: datetime
     type: Literal["text", "image", "document", "audio", "location", "template", "interactive"]
 
@@ -69,12 +69,12 @@ class Message(BaseModel):
     wamid: Optional[str] = None
     conversation_id: str
     tenant_id: str
-    sender: Literal["customer", "agent", "system"]
+    sender: Literal["customer", "agent", "human", "system"]
     sender_phone: Optional[str] = None
     content: str
     type: Literal["text", "image", "document", "audio", "location", "template", "interactive"] = "text"
     media: Optional[MediaInfo] = None
-    status: Literal["sending", "sent", "delivered", "read", "failed"] = "sending"
+    status: Literal["received", "sending", "sent", "delivered", "read", "failed"] = "sending"
     agent_metadata: Optional[AgentMeta] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     delivered_at: Optional[datetime] = None
