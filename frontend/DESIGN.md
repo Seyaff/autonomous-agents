@@ -11,7 +11,7 @@ Siyaf has two audiences, and each gets its own workspace:
 
 The two workspaces share the same tokens and components but have separate navigation. Founder pages appear only for the founder role.
 
-Reference prototype: Siyaf Service Console (Claude artifact).
+Reference prototype for the restaurant dashboard: [Siyaf Service Console](https://claude.ai/artifact/9suipFmcA3GbejF21Q8Q53). It shows the console, takeover, the kitchen rail and a simulated lunch rush with sample data.
 
 ---
 
@@ -151,10 +151,15 @@ Every screen uses one of these seven patterns.
 | **Status chip** | Mono 11px, a dot plus a label, `-soft` background with full-color text. Only status values may use it. |
 | **Agent trace line** | Mono 12px, right-aligned under the agent's bubble. Format: `↳ tool_name(args) → result · 0.18s`. The `↳` is `--ai`, the result is `--ok`, and an escalation is `--need`. |
 | **Chat bubble** | Customer: card background, aligned left. Agent: `--ai-soft` background, aligned right, labeled "Agent". Owner: `--new-soft` background, aligned right, labeled "You". System events: a centered, dashed-border, mono line. |
+| **Conversation row** | Avatar initials, customer name, last-message preview (or "typing…" in italics while the agent writes), status chip, time, and an unread badge (ink pill, mono count). Selected row: `--muted` background with a 3px ink bar on the left. A row that gets a new message flashes `--ai-soft` once. |
+| **Typing indicator** | Three 6px `--ai` dots in an agent-colored bubble, aligned right, shown while the agent is composing a reply. |
+| **Message ticks** | Mono `✓` for `sent`, `✓✓` for `delivered`, and `✓✓` in `--new` for `read`. A `failed` message shows a "Not sent · Retry" chip in `--need`. Read from the message `status` field. |
 | **Takeover bar** | In the thread header: a status chip plus a `Take over` / `Hand back to agent` button. The composer is disabled while the agent is in control, with the placeholder "The agent is replying. Take over to type." |
 | **Quick replies** | Pill buttons above the composer, offered when the chat has been escalated (refund, compensation, call back). |
 | **Ticket** | Paper colors, perforated top edge, mono 12.5px. Shows ID, age, customer · area, payment method, item lines, delivery fee, total, a source chip ("via AI agent"), and one action. |
 | **KPI strip** | One inline row: uppercase label + mono value. A value flashes `--ok` when it increases. No large number cards. |
+| **Agent state indicator** | In the header: a pulsing 8px `--ai` dot + "Agent on · WhatsApp +92 42 •••• 1180". Gray dot + "Agent paused" when switched off; `--need` dot + "WhatsApp disconnected" when the Meta connection fails. |
+| **Header** | Logo · tenant switcher · section tabs (Live service, Orders, Inbox, Menu knowledge, Reports, Settings) · agent state indicator · plan usage meter. |
 | **Plan usage meter** | Lives in the header: "Growth plan · 1,284 / 2,000 AI conversations" with a 5px ink-colored bar. Hide it until billing exists (see §7). |
 | **Tenant switcher** | Business name · branch, with the branch count underneath. Calls `/auth/switch-tenant`. |
 | **Toast** | Ink background, states what happened. Example: "ORD-7F3A moved to the kitchen. Ayesha got a WhatsApp update." |
