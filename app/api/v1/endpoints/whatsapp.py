@@ -18,6 +18,7 @@ from core.database import get_database
 from core.whatsapp_utils import download_whatsapp_media, send_whatsapp_message
 from services.pdf_ingestion import process_and_store_pdf_bytes
 from agents.customer_support.agent import run_customer_support_turn
+from services.message_service import message_service
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,16 @@ async def handle_text_turn(
             f"[{request_id}] Incoming message from [{sender_phone}] for tenant [{tenant_id}]: {user_payload}"
         )
 
+        # Persist inbound message
+        await message_service.persist_inbound(
+            tenant_id=tenant_id,
+            sender_phone=sender_phone,
+            content=user_payload,
+            message_type="text",
+            wamid=request_id,  # using request_id as fallback, actual wamid would come from webhook
+            customer_name=tenant.get("business_name", ""),
+        )
+
         reply_text = await run_customer_support_turn(
             db=database,
             tenant=tenant,
@@ -126,12 +137,34 @@ async def handle_text_turn(
             logger.info(
                 f"[{request_id}] Agent reply to [{sender_phone}] for tenant [{tenant_id}]: {reply_text}"
             )
+            
+            # Persist outbound message (optimistic)
+            # Get conversation_id from thread_id format
+            conversation_id = f"conv_{tenant_id}_{sender_phone}"
+            message = await message_service.persist_outbound(
+                conversation_id=conversation_id,
+                tenant_id=tenant_id,
+                content=reply_text,
+                message_type="text",
+                sender="agent",
+            )
+            
+            # Send via WhatsApp
             await send_whatsapp_message(
                 to_phone=sender_phone,
                 text=reply_text,
                 token=tenant_token,
                 phone_number_id=tenant_phone_id,
             )
+            
+            # Update message status to sent with wamid from response
+            # Note: send_whatsapp_message doesn't return wamid, would need to be updated
+            if message:
+                await message_service.update_outbound_status(
+                    message_id=message.message_id,
+                    wamid="pending",  # placeholder, actual wamid from Meta callback
+                    status="sent",
+                )
     except Exception as e:
         logger.exception(f"[{request_id}] Background text turn failed for {sender_phone}: {e}")
 
@@ -271,3 +304,46 @@ async def receive_meta_webhook(
 
     # ---- 5. ACK in milliseconds ----
     return {"status": "success"}
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp Status Webhook (delivered/read/failed)
+# ---------------------------------------------------------------------------
+@whatsapp_router.post("/status")
+@alias_router.post("/status")
+async def whatsapp_status_webhook(
+    request: Request,
+    database=Depends(get_database),
+):
+    """Handle WhatsApp message status callbacks (delivered/read/failed)."""
+    request_id = getattr(request.state, "request_id", "unknown")
+    
+    try:
+        body = await request.json()
+        logger.info(f"[{request_id}] Status webhook received: {body}")
+        
+        # Parse status update from Meta
+        entry = body.get("entry", [])[0]
+        changes = entry.get("changes", [])[0]
+        value = changes.get("value", {})
+        statuses = value.get("statuses", [])
+        
+        for status_update in statuses:
+            wamid = status_update.get("id")
+            status = status_update.get("status")
+            timestamp = status_update.get("timestamp")
+            error = status_update.get("errors", [{}])[0] if status_update.get("errors") else None
+            
+            if wamid and status:
+                await message_service.handle_status_webhook(
+                    wamid=wamid,
+                    status=status,
+                    timestamp=int(timestamp) if timestamp else None,
+                    error=error,
+                )
+        
+        return {"status": "success"}
+        
+    except Exception as e:
+        logger.exception(f"[{request_id}] Status webhook error: {e}")
+        return {"status": "success"}  # Always ACK Meta
