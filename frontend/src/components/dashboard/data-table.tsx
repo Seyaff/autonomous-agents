@@ -25,10 +25,8 @@ import {
   ChevronRightIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
-  ClockIcon,
   MoreVerticalIcon,
 } from "lucide-react"
-import { z } from "zod"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -37,7 +35,6 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
@@ -56,72 +53,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { ORDER_STATUS_CONFIG, orderStatusBadge, type OrderStatus } from "@/lib/status"
+import { useOrders } from "@/hooks/orders/use-orders"
+import { useUpdateOrderStatus } from "@/hooks/orders/use-update-order-status"
+import type { Order } from "@/services/orders/orders.service"
 
-export const orderSchema = z.object({
-  id: z.number(),
-  orderId: z.string(),
-  item: z.string(),
-  quantity: z.number(),
-  price: z.number(),
-  state: z.enum([
-    "pending",
-    "confirmed",
-    "in_kitchen",
-    "ready",
-    "delivered",
-    "cancelled",
-  ]),
-})
-
-export type Order = z.infer<typeof orderSchema>
-
-const stateConfig: Record<
-  Order["state"],
-  { label: string; className: string }
-> = {
-  pending: {
-    label: "Pending",
-    className: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  },
-  confirmed: {
-    label: "Confirmed",
-    className: "bg-blue-100 text-blue-800 border-blue-200",
-  },
-  in_kitchen: {
-    label: "In Kitchen",
-    className: "bg-orange-100 text-orange-800 border-orange-200",
-  },
-  ready: {
-    label: "Ready",
-    className: "bg-purple-100 text-purple-800 border-purple-200",
-  },
-  delivered: {
-    label: "Delivered",
-    className: "bg-green-100 text-green-800 border-green-200",
-  },
-  cancelled: {
-    label: "Cancelled",
-    className: "bg-red-100 text-red-800 border-red-200",
-  },
-}
-
-const dummyOrders: Order[] = [
-  { id: 1, orderId: "ORD-2024-001", item: "Chicken Biryani", quantity: 2, price: 28.5, state: "in_kitchen" },
-  { id: 2, orderId: "ORD-2024-002", item: "Beef Karahi", quantity: 1, price: 19.0, state: "pending" },
-  { id: 3, orderId: "ORD-2024-003", item: "Mutton Pulao", quantity: 3, price: 42.75, state: "delivered" },
-  { id: 4, orderId: "ORD-2024-004", item: "Chicken Tikka", quantity: 4, price: 36.0, state: "ready" },
-  { id: 5, orderId: "ORD-2024-005", item: "Nihari", quantity: 2, price: 24.5, state: "confirmed" },
-  { id: 6, orderId: "ORD-2024-006", item: "Haleem", quantity: 1, price: 12.0, state: "delivered" },
-  { id: 7, orderId: "ORD-2024-007", item: "Seekh Kebab", quantity: 6, price: 33.0, state: "in_kitchen" },
-  { id: 8, orderId: "ORD-2024-008", item: "Butter Chicken", quantity: 2, price: 26.0, state: "pending" },
-  { id: 9, orderId: "ORD-2024-009", item: "Palak Paneer", quantity: 1, price: 14.5, state: "cancelled" },
-  { id: 10, orderId: "ORD-2024-010", item: "Garlic Naan", quantity: 8, price: 16.0, state: "delivered" },
-  { id: 11, orderId: "ORD-2024-011", item: "Mango Lassi", quantity: 3, price: 10.5, state: "ready" },
-  { id: 12, orderId: "ORD-2024-012", item: "Chicken Handi", quantity: 2, price: 31.0, state: "confirmed" },
-  { id: 13, orderId: "ORD-2024-013", item: "Aloo Keema", quantity: 1, price: 17.75, state: "in_kitchen" },
-  { id: 14, orderId: "ORD-2024-014", item: "Daal Makhani", quantity: 2, price: 18.0, state: "delivered" },
-  { id: 15, orderId: "ORD-2024-015", item: "Chicken Shawarma", quantity: 3, price: 22.5, state: "pending" },
+const STATUS_OPTIONS: OrderStatus[] = [
+  "pending",
+  "accepted",
+  "preparing",
+  "out_for_delivery",
+  "delivered",
+  "cancelled",
 ]
 
 const features = tableFeatures({
@@ -138,7 +83,15 @@ const features = tableFeatures({
 const columnHelper = createColumnHelper<typeof features, Order>()
 
 export function OrdersTable() {
-  const [data] = React.useState(() => dummyOrders)
+  const [statusFilter, setStatusFilter] = React.useState<string>("all")
+  const { data, isLoading } = useOrders({
+    status: statusFilter === "all" ? undefined : statusFilter,
+    limit: 100,
+  })
+  const { mutate: updateStatus } = useUpdateOrderStatus()
+
+  const orders = React.useMemo(() => data?.orders ?? [], [data])
+
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
     React.useState<ColumnVisibilityState>({})
@@ -151,7 +104,6 @@ export function OrdersTable() {
     pageSize: 10,
   })
 
-  // Build columns inside the component so "Sr No" can read pagination
   const columns = React.useMemo(
     () =>
       columnHelper.columns([
@@ -170,87 +122,103 @@ export function OrdersTable() {
           enableSorting: false,
           enableHiding: false,
         }),
-        columnHelper.accessor("orderId", {
+        columnHelper.accessor("order_id", {
           header: "Order ID",
           cell: ({ row }) => (
             <span className="font-mono text-sm font-medium">
-              {row.getValue("orderId")}
+              {row.getValue("order_id")}
             </span>
           ),
         }),
-        columnHelper.accessor("item", {
-          header: "Item",
+        columnHelper.display({
+          id: "customer",
+          header: "Customer",
           cell: ({ row }) => (
-            <span className="text-sm font-medium">{row.getValue("item")}</span>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">
+                {row.original.customer_name || "Unknown"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {row.original.customer_phone}
+              </span>
+            </div>
           ),
         }),
-        columnHelper.accessor("quantity", {
-          header: "Quantity",
-          cell: ({ row }) => (
-            <span className="text-sm tabular-nums">
-              {row.getValue("quantity")}
-            </span>
-          ),
-        }),
-        columnHelper.accessor("price", {
-          header: () => (
-            <span className="block w-full text-right">Price</span>
-          ),
+        columnHelper.display({
+          id: "items",
+          header: "Items",
           cell: ({ row }) => {
-            const price = row.getValue("price") as number
+            const summary = row.original.items
+              .map((i) => `${i.quantity}x ${i.name}`)
+              .join(", ")
             return (
-              <span className="block text-right font-medium tabular-nums">
-                ${price.toFixed(2)}
+              <span className="line-clamp-1 max-w-60 text-sm text-muted-foreground">
+                {summary || "—"}
               </span>
             )
           },
         }),
-        columnHelper.accessor("state", {
-          header: "State",
+        columnHelper.accessor("total_amount", {
+          header: () => (
+            <span className="block w-full text-right">Total</span>
+          ),
           cell: ({ row }) => {
-            const state = row.getValue("state") as Order["state"]
-            const config = stateConfig[state]
+            const total = row.getValue("total_amount") as number
+            return (
+              <span className="block text-right font-medium tabular-nums">
+                ${total.toFixed(2)}
+              </span>
+            )
+          },
+        }),
+        columnHelper.accessor("status", {
+          header: "Status",
+          cell: ({ row }) => {
+            const { label, className } = orderStatusBadge(
+              row.getValue("status") as string
+            )
             return (
               <Badge
                 variant="outline"
-                className={cn(
-                  "gap-1 px-2 py-0.5 text-xs font-medium",
-                  config.className
-                )}
+                className={cn("px-2 py-0.5 text-xs font-medium", className)}
               >
-                {state === "in_kitchen" && <ClockIcon className="size-3" />}
-                {config.label}
+                {label}
               </Badge>
             )
           },
         }),
         columnHelper.display({
           id: "actions",
-          cell: () => (
+          cell: ({ row }) => (
             <DropdownMenu>
               <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted data-[state=open]:bg-muted">
                 <MoreVerticalIcon className="size-4" />
                 <span className="sr-only">Open menu</span>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem>View details</DropdownMenuItem>
-                <DropdownMenuItem>Update status</DropdownMenuItem>
-                <DropdownMenuItem>Print receipt</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive">
-                  Cancel order
-                </DropdownMenuItem>
+              <DropdownMenuContent align="end" className="w-48">
+                {STATUS_OPTIONS.filter((s) => s !== row.original.status).map(
+                  (s) => (
+                    <DropdownMenuItem
+                      key={s}
+                      onClick={() =>
+                        updateStatus({ orderId: row.original.order_id, status: s })
+                      }
+                    >
+                      Mark as {ORDER_STATUS_CONFIG[s].label}
+                    </DropdownMenuItem>
+                  )
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           ),
         }),
       ]),
-    [pagination.pageIndex, pagination.pageSize]
+    [pagination.pageIndex, pagination.pageSize, updateStatus]
   )
 
   const table = useTable({
     features,
-    data,
+    data: orders,
     columns,
     state: {
       sorting,
@@ -259,7 +227,7 @@ export function OrdersTable() {
       columnFilters,
       pagination,
     },
-    getRowId: (row) => row.id.toString(),
+    getRowId: (row) => row.order_id,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
@@ -277,39 +245,24 @@ export function OrdersTable() {
             Recent Orders
           </h2>
           <p className="text-sm text-muted-foreground">
-            A list of orders placed in your restaurant today.
+            Orders your customers placed over WhatsApp.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Select
-            value={
-              (columnFilters.find((f) => f.id === "state")?.value as string) ||
-              "all"
-            }
-            onValueChange={(value) => {
-              if (value === "all") {
-                setColumnFilters((prev) =>
-                  prev.filter((f) => f.id !== "state")
-                )
-              } else {
-                setColumnFilters((prev) => [
-                  ...prev.filter((f) => f.id !== "state"),
-                  { id: "state", value },
-                ])
-              }
-            }}
+            value={statusFilter}
+            onValueChange={(value) => setStatusFilter(value ?? "all")}
           >
-            <SelectTrigger className="w-40" size="sm">
-              <SelectValue placeholder="All states" />
+            <SelectTrigger className="w-44" size="sm">
+              <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All states</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="in_kitchen">In Kitchen</SelectItem>
-              <SelectItem value="ready">Ready</SelectItem>
-              <SelectItem value="delivered">Delivered</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
+              <SelectItem value="all">All statuses</SelectItem>
+              {STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {ORDER_STATUS_CONFIG[s].label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <DropdownMenu>
@@ -363,7 +316,15 @@ export function OrdersTable() {
             ))}
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows.length ? (
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell colSpan={columns.length} className="h-12 py-3">
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
@@ -419,7 +380,7 @@ export function OrdersTable() {
             </Select>
           </div>
           <div className="flex w-fit items-center justify-center text-sm font-medium">
-            Page {pagination.pageIndex + 1} of {table.getPageCount()}
+            Page {pagination.pageIndex + 1} of {Math.max(table.getPageCount(), 1)}
           </div>
           <div className="ml-auto flex items-center gap-2 lg:ml-0">
             <Button

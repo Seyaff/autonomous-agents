@@ -2,18 +2,9 @@
 
 import * as React from "react"
 import { notFound } from "next/navigation"
-import {
-  ArrowLeftIcon,
-  InfoIcon,
-  MoreVerticalIcon,
-  PaperclipIcon,
-  SearchIcon,
-  SendIcon,
-  SmileIcon,
-} from "lucide-react"
+import { ArrowLeftIcon, MoreVerticalIcon, SendIcon } from "lucide-react"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -23,40 +14,39 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { mails } from "@/components/inbox/inbox-sidebar"
+import { MESSAGE_STATUS_CONFIG } from "@/lib/status"
+import { useConversation } from "@/hooks/inbox/use-conversation"
+import { useSendMessage } from "@/hooks/inbox/use-send-message"
+import { useMarkConversationRead } from "@/hooks/inbox/use-mark-read"
 
-type Message = {
-  id: number
-  from: "me" | "them"
-  text: string
-  time: string
+function initials(name: string) {
+  return (
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((n) => n[0]?.toUpperCase())
+      .join("") || "?"
+  )
 }
-
-const baseMessages: Message[] = [
-  { id: 1, from: "them", text: "Hey! Just wanted to follow up on the meeting notes.", time: "09:12 AM" },
-  { id: 2, from: "me", text: "Sure thing, I'll send them over in a bit.", time: "09:14 AM" },
-  { id: 3, from: "them", text: "Perfect. Also, can we push the design review to 3 PM?", time: "09:15 AM" },
-  { id: 4, from: "me", text: "3 PM works. I'll update the calendar invite.", time: "09:16 AM" },
-  { id: 5, from: "them", text: "Thanks! See you then 👋", time: "09:17 AM" },
-  { id: 6, from: "me", text: "See you!", time: "09:17 AM" },
-]
 
 export default function InboxConversationPage({
   params,
 }: {
   params: Promise<{ id: string }>
 }) {
-  // Next.js 15: params is a promise
   const { id } = React.use(params)
-  const conversation = mails.find((m) => m.id === id)
+  const { data, isLoading, isError } = useConversation(id)
+  const { mutate: send, isPending: isSending } = useSendMessage(id)
+  const { mutate: markRead } = useMarkConversationRead()
 
-  if (!conversation) notFound()
-
-  const [messages, setMessages] = React.useState<Message[]>(baseMessages)
   const [draft, setDraft] = React.useState("")
   const scrollRef = React.useRef<HTMLDivElement>(null)
+
+  const conversation = data?.conversation
+  const messages = React.useMemo(() => data?.messages ?? [], [data])
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -65,23 +55,21 @@ export default function InboxConversationPage({
     })
   }, [messages])
 
+  React.useEffect(() => {
+    if (conversation && conversation.unread_count > 0) {
+      markRead(id)
+    }
+    // Only re-run when the conversation identity or its unread count changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, conversation?.unread_count])
+
+  if (isError) notFound()
+
   function handleSend(e: React.FormEvent) {
     e.preventDefault()
     const text = draft.trim()
-    if (!text) return
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: prev.length + 1,
-        from: "me",
-        text,
-        time: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      },
-    ])
+    if (!text || isSending) return
+    send(text)
     setDraft("")
   }
 
@@ -94,54 +82,42 @@ export default function InboxConversationPage({
           <span className="sr-only">Back</span>
         </Button>
 
-        <Avatar className="size-9">
-          <AvatarImage src="" alt={conversation.name} />
-          <AvatarFallback>
-            {conversation.name
-              .split(" ")
-              .map((n) => n[0])
-              .join("")}
-          </AvatarFallback>
-        </Avatar>
+        {isLoading ? (
+          <>
+            <Skeleton className="size-9 rounded-full" />
+            <Skeleton className="h-4 w-32" />
+          </>
+        ) : (
+          <>
+            <Avatar className="size-9">
+              <AvatarFallback>
+                {initials(conversation?.customer_name || conversation?.customer_phone || "?")}
+              </AvatarFallback>
+            </Avatar>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">
-              {conversation.name}
-            </span>
-            <Badge
-              variant="secondary"
-              className="h-4 gap-1 px-1.5 text-[10px] font-normal"
-            >
-              <span className="size-1.5 rounded-full bg-emerald-500" />
-              Online
-            </Badge>
-          </div>
-          <span className="truncate text-xs text-muted-foreground">
-            {conversation.email}
-          </span>
-        </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm font-medium">
+                {conversation?.customer_name || "Unknown customer"}
+              </span>
+              <span className="truncate text-xs text-muted-foreground">
+                {conversation?.customer_phone}
+              </span>
+            </div>
+          </>
+        )}
 
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="size-8">
-            <SearchIcon className="size-4" />
-            <span className="sr-only">Search</span>
-          </Button>
-          <Button variant="ghost" size="icon" className="size-8">
-            <InfoIcon className="size-4" />
-            <span className="sr-only">Details</span>
-          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground">
               <MoreVerticalIcon className="size-4" />
               <span className="sr-only">More</span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem>Mark as unread</DropdownMenuItem>
-              <DropdownMenuItem>Star conversation</DropdownMenuItem>
-              <DropdownMenuItem>Mute</DropdownMenuItem>
+              <DropdownMenuItem>Archive</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive">Delete</DropdownMenuItem>
+              <DropdownMenuItem variant="destructive">
+                Close conversation
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -152,60 +128,89 @@ export default function InboxConversationPage({
         ref={scrollRef}
         className="flex flex-1 flex-col gap-4 overflow-y-auto bg-muted/30 p-6"
       >
-        <div className="flex items-center gap-3 py-2">
-          <Separator className="flex-1" />
-          <span className="text-xs font-medium text-muted-foreground">
-            Today
-          </span>
-          <Separator className="flex-1" />
-        </div>
-
-        {messages.map((message) => {
-          const isMe = message.from === "me"
-          return (
-            <div
-              key={message.id}
-              className={cn(
-                "flex w-full items-end gap-2",
-                isMe ? "justify-end" : "justify-start"
-              )}
-            >
-              {!isMe && (
-                <Avatar className="size-7 shrink-0">
-                  <AvatarFallback className="text-[10px]">
-                    {conversation.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")}
-                  </AvatarFallback>
-                </Avatar>
-              )}
-
-              <div
+        {isLoading ? (
+          <div className="space-y-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton
+                key={i}
                 className={cn(
-                  "flex max-w-[75%] flex-col gap-1 rounded-2xl px-3.5 py-2 text-sm shadow-sm",
-                  isMe
-                    ? "rounded-br-sm bg-primary text-primary-foreground"
-                    : "rounded-bl-sm bg-background"
+                  "h-10 w-2/3 rounded-2xl",
+                  i % 2 === 0 ? "ml-auto" : ""
+                )}
+              />
+            ))}
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            No messages in this conversation yet.
+          </div>
+        ) : (
+          messages.map((message) => {
+            const isOutbound =
+              message.sender === "agent" || message.sender === "human"
+            return (
+              <div
+                key={message.message_id}
+                className={cn(
+                  "flex w-full items-end gap-2",
+                  isOutbound ? "justify-end" : "justify-start"
                 )}
               >
-                <p className="whitespace-pre-wrap leading-snug">
-                  {message.text}
-                </p>
-                <span
+                {!isOutbound && (
+                  <Avatar className="size-7 shrink-0">
+                    <AvatarFallback className="text-[10px]">
+                      {initials(
+                        conversation?.customer_name ||
+                          conversation?.customer_phone ||
+                          "?"
+                      )}
+                    </AvatarFallback>
+                  </Avatar>
+                )}
+
+                <div
                   className={cn(
-                    "text-[10px] tabular-nums",
-                    isMe
-                      ? "text-primary-foreground/70"
-                      : "text-muted-foreground"
+                    "flex max-w-[75%] flex-col gap-1 rounded-2xl px-3.5 py-2 text-sm shadow-sm",
+                    isOutbound
+                      ? "rounded-br-sm bg-primary text-primary-foreground"
+                      : "rounded-bl-sm bg-background"
                   )}
                 >
-                  {message.time}
-                </span>
+                  <p className="whitespace-pre-wrap leading-snug">
+                    {message.content}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "text-[10px] tabular-nums",
+                        isOutbound
+                          ? "text-primary-foreground/70"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {new Date(message.created_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    {isOutbound && (
+                      <span
+                        className={cn(
+                          "text-[10px]",
+                          isOutbound
+                            ? "text-primary-foreground/70"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        · {MESSAGE_STATUS_CONFIG[message.status]?.label ?? message.status}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })
+        )}
       </div>
 
       {/* Composer */}
@@ -213,35 +218,19 @@ export default function InboxConversationPage({
         onSubmit={handleSend}
         className="flex shrink-0 items-center gap-2 border-t bg-background p-3"
       >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Type a message..."
+          disabled={isSending || isLoading}
+          className="flex-1"
+        />
         <Button
-          type="button"
-          variant="ghost"
+          type="submit"
           size="icon"
-          className="size-8 shrink-0"
+          className="size-9 shrink-0"
+          disabled={!draft.trim() || isSending}
         >
-          <PaperclipIcon className="size-4" />
-          <span className="sr-only">Attach</span>
-        </Button>
-
-        <div className="relative flex-1">
-          <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Type a message..."
-            className="pr-9"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="absolute top-1/2 right-1 size-7 -translate-y-1/2"
-          >
-            <SmileIcon className="size-4" />
-            <span className="sr-only">Emoji</span>
-          </Button>
-        </div>
-
-        <Button type="submit" size="icon" className="size-9 shrink-0">
           <SendIcon className="size-4" />
           <span className="sr-only">Send</span>
         </Button>
