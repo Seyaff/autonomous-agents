@@ -20,6 +20,7 @@ async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
     db = get_database()
     now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
+    fourteen_days_ago = now - timedelta(days=14)
 
     # 1. Fetch orders in the 7-day window
     query = {
@@ -28,6 +29,23 @@ async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
     }
     cursor = db["orders"].find(query)
     orders = await cursor.to_list(length=5000)
+
+    # Prior 7-day window, for revenue growth comparison
+    prior_window_query = {
+        "tenant_id": tenant_id,
+        "created_at": {"$gte": fourteen_days_ago, "$lt": seven_days_ago},
+        "status": {"$ne": "cancelled"},
+    }
+    prior_cursor = db["orders"].find(prior_window_query, {"total_amount": 1})
+    prior_orders = await prior_cursor.to_list(length=5000)
+    prior_revenue = sum(float(o.get("total_amount", 0.0)) for o in prior_orders)
+
+    total_conversations = await db["conversations"].count_documents(
+        {"tenant_id": tenant_id, "created_at": {"$gte": seven_days_ago}}
+    )
+    total_messages = await db["messages"].count_documents(
+        {"tenant_id": tenant_id, "created_at": {"$gte": seven_days_ago}}
+    )
 
     total_orders = len(orders)
     total_revenue = 0.0
@@ -61,17 +79,25 @@ async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
     aov = (total_revenue / total_orders) if total_orders > 0 else 0.0
     cancellation_rate = ((cancelled_orders / total_orders) * 100) if total_orders > 0 else 0.0
 
+    if prior_revenue > 0:
+        revenue_growth_pct = ((total_revenue - prior_revenue) / prior_revenue) * 100
+    else:
+        revenue_growth_pct = 100.0 if total_revenue > 0 else 0.0
+
     return {
         "period_start": seven_days_ago.isoformat(),
         "period_end": now.isoformat(),
         "total_orders": total_orders,
         "total_revenue": round(total_revenue, 2),
+        "revenue_growth_pct": round(revenue_growth_pct, 1),
         "delivered_orders": delivered_orders,
         "cancelled_orders": cancelled_orders,
         "cancellation_rate": round(cancellation_rate, 1),
         "average_order_value": round(aov, 2),
         "unique_customers": len(unique_customers),
         "top_items": top_items,
+        "total_conversations": total_conversations,
+        "total_messages": total_messages,
     }
 
 

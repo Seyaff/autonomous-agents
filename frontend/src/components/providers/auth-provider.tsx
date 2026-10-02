@@ -13,7 +13,7 @@ import API from "@/lib/axios-client"
 import { useGetCurrentUser } from "@/hooks/auth/get-me"
 
 
-export type UserRole = "OWNER" | "ADMIN" | "STAFF"
+export type UserRole = "FOUNDER" | "OWNER"
 
 export interface User {
     _id: string
@@ -33,6 +33,7 @@ interface AuthContextValue {
     user: User | null
     isLoading: boolean
     isAuthenticated: boolean
+    isFounder: boolean
     isOnboarded: boolean
     activeTenantId: string | null
     tenants: string[]
@@ -47,6 +48,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const ONBOARDING_PATHS = ["/onboarding", "/settings"]
 const PUBLIC_PATHS = ["/login", "/signup", "/privacy"]
+const FOUNDER_PREFIX = "/founder"
 
 export default function AuthProvider({
     children,
@@ -65,41 +67,56 @@ export default function AuthProvider({
     } = useGetCurrentUser()
 
     const isAuthenticated = !!user
+    const isFounder = user?.role === "FOUNDER"
     const isOnboarded = !!user?.is_onboarded
     const activeTenantId = user?.active_tenant_id ?? null
     const tenants = user?.tenants ?? []
 
-    // Handle redirects based on auth/onboarding state
+    // Handle redirects based on auth/role/onboarding state
     useEffect(() => {
         if (isLoading) return
 
         const isOnboardingPath = ONBOARDING_PATHS.some(p => pathname.startsWith(p))
         const isPublicPath = PUBLIC_PATHS.some(p => pathname === p)
+        const isFounderPath = pathname.startsWith(FOUNDER_PREFIX)
 
         // Not authenticated -> redirect to login (unless on public path)
-        if (!isAuthenticated && !isPublicPath) {
-            router.replace("/login")
+        if (!isAuthenticated) {
+            if (!isPublicPath) router.replace("/login")
             return
         }
 
-        // Authenticated but not onboarded -> redirect to onboarding (unless already there)
-        if (isAuthenticated && !isOnboarded && !isOnboardingPath) {
+        // FOUNDER has its own surface — never onboards, never uses the
+        // owner dashboard. Anything outside /founder bounces back there.
+        if (isFounder) {
+            if (!isFounderPath) router.replace("/founder")
+            return
+        }
+
+        // OWNER below — not onboarded -> onboarding (unless already there)
+        if (!isOnboarded && !isOnboardingPath) {
             router.replace("/onboarding")
             return
         }
 
-        // Authenticated and onboarded but on onboarding path -> redirect to dashboard
-        if (isAuthenticated && isOnboarded && isOnboardingPath) {
+        // Onboarded but on onboarding path -> dashboard
+        if (isOnboarded && isOnboardingPath) {
             router.replace("/dashboard")
             return
         }
 
-        // Authenticated and onboarded but on public path -> redirect to dashboard
-        if (isAuthenticated && isOnboarded && isPublicPath) {
+        // Onboarded but on a public path, or the bare root -> dashboard
+        if (isOnboarded && (isPublicPath || pathname === "/")) {
             router.replace("/dashboard")
             return
         }
-    }, [isAuthenticated, isOnboarded, isLoading, pathname, router])
+
+        // Owners never see the founder console
+        if (isFounderPath) {
+            router.replace("/dashboard")
+            return
+        }
+    }, [isAuthenticated, isFounder, isOnboarded, isLoading, pathname, router])
 
     // ---------- Actions ----------
 
@@ -133,6 +150,7 @@ export default function AuthProvider({
             user: user ?? null,
             isLoading,
             isAuthenticated,
+            isFounder,
             isOnboarded,
             activeTenantId,
             tenants,
@@ -146,6 +164,7 @@ export default function AuthProvider({
             user,
             isLoading,
             isAuthenticated,
+            isFounder,
             isOnboarded,
             activeTenantId,
             tenants,

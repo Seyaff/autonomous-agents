@@ -5,7 +5,7 @@ export interface User {
     user_id: string
     full_name: string
     email: string
-    role: "OWNER" | "ADMIN" | "STAFF"
+    role: "FOUNDER" | "OWNER"
     is_onboarded: boolean
     active_tenant_id: string
     tenants: string[]

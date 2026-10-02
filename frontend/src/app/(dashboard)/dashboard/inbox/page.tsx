@@ -1,20 +1,11 @@
-import { MessageSquareIcon } from "lucide-react"
-
-export default function ConversationRouter() {
+export default function InboxEmptyState() {
   return (
-    <main className="flex h-screen flex-1 items-center justify-center p-6">
-      <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-          <MessageSquareIcon className="size-5 text-muted-foreground" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <h2 className="text-sm font-medium">No conversation selected</h2>
-          <p className="text-xs text-muted-foreground">
-            Choose a conversation from the list on the left to view its
-            messages.
-          </p>
-        </div>
+    <div className="flex h-full flex-1 items-center justify-center bg-muted/30 p-6">
+      <div className="rounded-lg border border-dashed border-border px-6 py-8 text-center">
+        <p className="font-mono text-[13px] text-muted-foreground">
+          Select a conversation from the list to see the thread.
+        </p>
       </div>
-    </main>
+    </div>
   )
 }
