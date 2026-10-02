@@ -1,6 +1,15 @@
 # Siyaf Design System
 
-The design rules for the Siyaf dashboard. Siyaf is a multi-tenant SaaS: restaurant owners run their WhatsApp AI agent from it, and the founder runs growth tools.
+The design rules for the Siyaf dashboard.
+
+Siyaf has two audiences, and each gets its own workspace:
+
+| Audience | Workspace | Their job | What success looks like |
+|---|---|---|---|
+| **Restaurant owner** (the customer) | `/dashboard/*` | Let the agent handle WhatsApp queries and orders, and step in only when needed | More orders and fewer missed messages, for less staff time |
+| **Founder** (you) | `/founder/*` | Run Siyaf itself on autopilot: find restaurants, pitch them, convert them, keep them paying | New paying tenants with minimal manual work, and no tenant left in trouble |
+
+The two workspaces share the same tokens and components but have separate navigation. Founder pages appear only for the founder role.
 
 Reference prototype: Siyaf Service Console (Claude artifact).
 
@@ -13,6 +22,7 @@ Reference prototype: Siyaf Service Console (Claude artifact).
 3. **Show the agent's work.** Whenever the AI acts (searches the menu, creates an order, escalates), the UI shows it so the owner can trust it.
 4. **A person can always take over.** Every AI-run surface has a visible switch for a person to take over and hand back.
 5. **Paper for the kitchen.** Order tickets look like printed receipts. This is the one place the product uses a skeuomorphic look.
+6. **Money uses each tenant's own currency.** Read `tenant.currency`. Never hardcode Rs or $.
 
 ---
 
@@ -145,7 +155,7 @@ Every screen uses one of these seven patterns.
 | **Quick replies** | Pill buttons above the composer, offered when the chat has been escalated (refund, compensation, call back). |
 | **Ticket** | Paper colors, perforated top edge, mono 12.5px. Shows ID, age, customer · area, payment method, item lines, delivery fee, total, a source chip ("via AI agent"), and one action. |
 | **KPI strip** | One inline row: uppercase label + mono value. A value flashes `--ok` when it increases. No large number cards. |
-| **Plan usage meter** | Lives in the header: "Growth plan · 1,284 / 2,000 AI conversations" with a 5px ink-colored bar. |
+| **Plan usage meter** | Lives in the header: "Growth plan · 1,284 / 2,000 AI conversations" with a 5px ink-colored bar. Hide it until billing exists (see §7). |
 | **Tenant switcher** | Business name · branch, with the branch count underneath. Calls `/auth/switch-tenant`. |
 | **Toast** | Ink background, states what happened. Example: "ORD-7F3A moved to the kitchen. Ayesha got a WhatsApp update." |
 | **Empty state** | A one-line mono note in a dashed box that says what will appear and how it gets there. |
@@ -189,9 +199,18 @@ Status key: ✅ wired to the backend · 🟡 mock data · ⬜ missing
 | `/dashboard/menu` | C. Ledger + upload | `/knowledge` (list, `upload-pdf`, `add-text`, `DELETE`, `test-search`) | ⬜ | A document list plus a "Ask the agent" test box that shows the trace for each search. |
 | `/dashboard/reports` | G. Reading + KPI strip | `/analytics/7day-summary`, `/analytics/weekly-reports`, `POST /analytics/weekly/generate` | ⬜ | Show the 7-day summary up top, with the weekly reports listed below as readable documents. |
 | `/dashboard/settings` | F. Settings form | `/tenant/current`, `/tenant/meta-embedded-signup` | ⬜ | Sections for profile, delivery (fee, prep time), WhatsApp connection status, team, and plan & usage. |
-| `/founder/leads` | C. Ledger → B. detail | `POST /founder/lead-hunt`, `/founder/campaigns`, `/campaigns/{id}/export` | ⬜ | Campaign list, lead table with fit score, Excel export. Founder role only. |
-| `/founder/outreach` | B. List and detail | `/founder/outreach/draft`, `/founder/reply-handler` | ⬜ | Pick a lead, edit the drafted pitch, see the reply thread. |
+| `/founder` | A. Console (founder version) | `/founder/campaigns`, `/founder/reply-handler` | ⬜ | The founder's home screen. Queue: prospects who replied, grouped Hot → Warm → Not interested. Thread: the reply, the agent's intent analysis and drafted answer, with takeover. Rail: the pipeline (see below). |
+| `/founder/leads` | C. Ledger → B. detail | `POST /founder/lead-hunt`, `/founder/campaigns`, `/campaigns/{id}/export` | ⬜ | Campaign list, lead table with fit score and Warm/Hot/Premium tier, Excel export. Every lead shows its source; leads the LLM made up are never shown (see §7). |
+| `/founder/outreach` | B. List and detail | `/founder/outreach/draft` | ⬜ | Pick a lead, edit the drafted email or WhatsApp pitch, approve it to send. Sending is not built yet. |
+| `/founder/tenants` | C. Ledger → B. detail | needs a new endpoint | ⬜ | Every restaurant on Siyaf: WhatsApp connected?, last order, AI-handled %, failed messages, escalations, plan. Unhealthy tenants sort to the top. |
+| `/founder/billing` | C. Ledger | needs a new endpoint | ⬜ | Plans, invoices, usage per tenant, MRR. Nothing exists in the backend yet. |
 | `/` (agent chat) | Chat (B detail only) | `/agent/query` | ✅ | This is an internal test console. Move it to `/founder/agent` and make `/` a landing page or a redirect. |
+
+### Founder pipeline (rail on `/founder`)
+
+`Found → Contacted → Replied → Demo booked → Trial (tenant created) → Paying`
+
+Each card is one restaurant. It moves forward automatically when the system sees the event (outreach sent, reply received, tenant created through `/tenant/create`, first payment). It moves manually only when you drag it.
 | `/privacy` | G. Reading | — | ✅ | Apply tokens only. |
 
 ### Shared chrome
@@ -205,3 +224,37 @@ Status key: ✅ wired to the backend · 🟡 mock data · ⬜ missing
   - Change `metadata.description`, which still reads "Generated by create next app".
   - Swap Geist for the fonts in §2.
 - **Header (inside the dashboard layout):** add the agent state ("Agent on · WhatsApp number"), the plan usage meter, and a live unread count from `/ws/inbox`.
+
+---
+
+## 7. Feature roadmap
+
+These are ranked by the business outcome each audience needs. Each one names the screen it belongs on.
+
+### Restaurant owner
+
+| # | Feature | Outcome | Screen | Backend |
+|---|---|---|---|---|
+| 1 | **Takeover and escalation.** Owner pauses the agent per chat; the agent hands refunds and complaints to the owner. | No double replies, and angry customers reach a person | Console, Inbox | Takeover flag the agent checks, `escalate` tool |
+| 2 | **Item availability.** Mark items sold out for today. | Fewer wrong orders and cancellations | Menu knowledge | Availability list injected into the agent prompt |
+| 3 | **Hours, closed mode, delivery zones** | Takes pre-orders when closed, rejects out-of-area orders | Settings | Tenant fields + prompt |
+| 4 | **ROI report.** Orders and revenue taken by the agent, after-hours orders, staff hours saved. | Owner sees why Siyaf is worth paying for | Reports, KPI strip | Aggregate over `orders` |
+| 5 | **Order status updates to customers.** Each ticket move sends a WhatsApp message. | Fewer "where is my order?" chats | Rail | Hook on `PATCH /orders/{id}` |
+| 6 | **Owner alerts on WhatsApp.** Escalations, late orders, daily summary. | Owner doesn't need the dashboard open | Settings (alert preferences) | Email alerts exist; add WhatsApp |
+| 7 | **Upsell in the agent** | Higher average order value | Reports (acceptance rate) | Prompt + order data |
+| 8 | **Abandoned-chat follow-up and reorder campaigns** | Recovered and repeat orders | Campaigns (new page, C. Ledger) | Meta-approved templates and customer opt-in are required |
+
+### Founder
+
+| # | Feature | Outcome | Screen | Backend |
+|---|---|---|---|---|
+| 1 | **No invented leads.** `lead_generator.py` asks the LLM to make up businesses with phones and emails when search fails. Fail and show an error instead. | You never pitch fake or wrong numbers, which protects your WhatsApp number | Leads | Remove the LLM fallback |
+| 2 | **Persistent leads.** Store each lead as its own record with a pipeline stage. Generate the Excel file on download. | The pipeline survives redeploys; files written to disk on Render are lost | Leads, `/founder` rail | `leads` collection |
+| 3 | **Send outreach**, not only draft it. Approval step first, then automatic. | Outreach runs without you | Outreach | Email send exists (Gmail); WhatsApp needs templates |
+| 4 | **Automatic reply intake.** Prospect replies arrive by themselves instead of through a manual `POST /reply-handler`. | Hot replies reach you within minutes | `/founder` console | Route replies to the founder number into the reply handler |
+| 5 | **Lead → trial in one link.** The pitch includes a signup link that pre-fills onboarding. | Shorter path from "interested" to live | Onboarding | Signup token tied to the lead |
+| 6 | **Scheduled autopilot.** Lead hunts, follow-ups and weekly owner reports run on a schedule. | The business runs while you sleep | `/founder` settings | No scheduler exists yet |
+| 7 | **Tenant health** | You catch a broken WhatsApp connection or a failing agent before the owner churns | Tenants | New aggregate endpoint |
+| 8 | **Billing and usage metering** | You get paid; plans limit AI conversations | Billing, plan meter | Nothing exists yet |
+
+Build order: founder 1–2 (cheap, they prevent damage), then owner 1–3, then founder 3–4 and 6, then owner 4–5, then billing before the first paying customer.
