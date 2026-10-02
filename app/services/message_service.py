@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
@@ -13,6 +14,7 @@ from models.inbox import (
     AgentMeta,
 )
 from core.ws_events import WSEvent
+from services.email_service import gmail_service
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,14 @@ class MessageService:
 
             # 4. Broadcast to owner dashboard
             await self._broadcast_message_new(tenant_id, conversation, message)
+
+            # 5. Send email notification to owner (non-blocking)
+            asyncio.create_task(self._send_new_message_email(
+                tenant_id=tenant_id,
+                customer_name=customer_name or "Customer",
+                preview=content[:200],
+                conversation_id=conversation.conversation_id,
+            ))
 
             logger.info(f"Persisted inbound message {message.message_id} for tenant {tenant_id}")
             return message
@@ -363,6 +373,40 @@ class MessageService:
             "updated_at": conversation.updated_at.isoformat(),
             "last_activity_at": conversation.last_activity_at.isoformat(),
         }
+
+
+async def _send_new_message_email(
+        self,
+        tenant_id: str,
+        customer_name: str,
+        preview: str,
+        conversation_id: str,
+    ):
+        """Send email notification for new inbound message (non-blocking)."""
+        try:
+            db = get_database()
+            # Get tenant owner email
+            tenant = await db.tenants.find_one({"tenant_id": tenant_id})
+            if not tenant:
+                return
+            
+            owner_id = tenant.get("owner_id")
+            if not owner_id:
+                return
+            
+            user = await get_database().users.find_one({"user_id": owner_id})
+            if not user or not user.get("email"):
+                return
+            
+            # Send email via Gmail API
+            gmail_service.send_new_message_notification(
+                to_email=user["email"],
+                customer_name=customer_name,
+                preview=preview,
+                conversation_id=conversation_id,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send new message email for tenant {tenant_id}: {e}")
 
 
 message_service = MessageService()
