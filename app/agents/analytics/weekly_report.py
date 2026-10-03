@@ -168,9 +168,9 @@ Format cleanly for WhatsApp reading with bold headers and bullet points.
     report_doc["_id"] = str(inserted.inserted_id)
 
     # Proactive Autopilot Dispatch to Owner's WhatsApp
-    if owner_phone:
-        token = reveal(tenant.get("whatsapp_access_token")) or settings.WHATSAPP_TOKEN
-        phone_id = tenant.get("phone_number_id") or settings.WHATSAPP_PHONE_NUMBER_ID
+    token = reveal(tenant.get("whatsapp_access_token"))
+    phone_id = tenant.get("phone_number_id")
+    if owner_phone and token and phone_id:
         whatsapp_message = (
             f"📊 *7-DAY AUTOPILOT BUSINESS REPORT: {business_name.upper()}*\n\n"
             f"{report_text}\n\n"
