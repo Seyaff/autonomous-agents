@@ -419,6 +419,10 @@ async def connect_meta_whatsapp(
     so the owner sees it.
     """
     tenant_id = current_user.get("active_tenant_id")
+    logger.info(
+        f"[meta-signup] start tenant={tenant_id} waba={payload.waba_id} "
+        f"phone_number_id={payload.phone_number_id} has_code={bool(payload.code)}"
+    )
     if not tenant_id:
         raise HTTPException(status_code=400, detail="Create a restaurant profile first.")
 
@@ -434,6 +438,7 @@ async def connect_meta_whatsapp(
         )
 
     async def fail(message: str, status_code: int = 400):
+        logger.warning(f"[meta-signup] failed tenant={tenant_id} status={status_code}: {message}")
         await db.tenants.update_one(
             {"tenant_id": tenant_id},
             {"$set": {
@@ -448,6 +453,7 @@ async def connect_meta_whatsapp(
     token = await _exchange_signup_code(payload.code)
     if not token:
         await fail("Meta didn't accept the signup. Try connecting again.")
+    logger.info(f"[meta-signup] code exchanged tenant={tenant_id}")
 
     other = await db.tenants.find_one(
         {"phone_number_id": payload.phone_number_id, "tenant_id": {"$ne": tenant_id}},
@@ -458,7 +464,9 @@ async def connect_meta_whatsapp(
 
     try:
         details = await verify_phone_number(token, payload.phone_number_id)
+        logger.info(f"[meta-signup] number verified tenant={tenant_id} display={details.get('display_phone_number')}")
         await subscribe_business_account(token, payload.waba_id)
+        logger.info(f"[meta-signup] waba subscribed tenant={tenant_id}")
     except ValueError as e:
         await fail(str(e))
 
