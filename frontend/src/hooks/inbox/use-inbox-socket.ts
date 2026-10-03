@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+import API from "@/lib/axios-client"
 
 function getWsBaseUrl(): string {
   // The websocket connects directly to the backend origin rather than
@@ -49,8 +50,25 @@ export function useInboxSocket(enabled: boolean) {
     let closedByCleanup = false
     let retryTimeout: ReturnType<typeof setTimeout> | null = null
 
-    const connect = () => {
-      socket = new WebSocket(`${getWsBaseUrl()}/ws/inbox`)
+    const scheduleRetry = () => {
+      if (closedByCleanup) return
+      const delay = Math.min(1000 * 2 ** retryRef.current, 15000)
+      retryRef.current += 1
+      retryTimeout = setTimeout(connect, delay)
+    }
+
+    const connect = async () => {
+      let ticket: string
+      try {
+        const res = await API.post("/ws/ticket")
+        ticket = res.data.ticket
+      } catch {
+        scheduleRetry()
+        return
+      }
+      if (closedByCleanup) return
+
+      socket = new WebSocket(`${getWsBaseUrl()}/ws/inbox?ticket=${encodeURIComponent(ticket)}`)
 
       socket.onopen = () => {
         retryRef.current = 0
@@ -117,12 +135,7 @@ export function useInboxSocket(enabled: boolean) {
         }
       }
 
-      socket.onclose = () => {
-        if (closedByCleanup) return
-        const delay = Math.min(1000 * 2 ** retryRef.current, 15000)
-        retryRef.current += 1
-        retryTimeout = setTimeout(connect, delay)
-      }
+      socket.onclose = () => scheduleRetry()
 
       socket.onerror = () => {
         socket?.close()
