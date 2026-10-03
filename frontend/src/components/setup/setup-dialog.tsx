@@ -35,7 +35,7 @@ export function SetupDialog({ step, children }: { step: SetupRoute; children: Re
 
   const dismissible =
     setup.isComplete &&
-    (step === "menu" || step === "whatsapp") &&
+    step === "menu" &&
     setup.skippedSteps.includes(step)
 
   const number = stepNumber(step)

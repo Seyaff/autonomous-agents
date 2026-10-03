@@ -366,6 +366,9 @@ async def update_setup_step(
     problem = validate_action(state, step, payload.action)
     if problem:
         raise HTTPException(status_code=problem[0], detail=problem[1])
+    # The WhatsApp step only counts as done once the number is really connected.
+    if step == "whatsapp" and payload.action == "complete" and not (tenant.get("whatsapp_connected") and tenant.get("phone_number_id")):
+        raise HTTPException(status_code=409, detail="Connect your WhatsApp number first. Your agent can't reply until it's connected.")
 
     new_state = apply_action(state, step, payload.action)
     await db.tenants.update_one(
