@@ -1,4 +1,7 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from core.database import get_database
@@ -7,6 +10,12 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from services.invoices import (
+    create_subscription_invoice,
+    pay_open_invoice,
+    INVOICES,
+    PUBLIC_FIELDS,
+)
 from services.billing import (
     DEFAULT_PLAN,
     EXTRA_CHAT_PKR,
@@ -117,3 +126,77 @@ async def list_plans(current_user: dict = Depends(require_owner)):
         PlanOption(key=key, extra_chat_pkr=EXTRA_CHAT_PKR, **{k: v for k, v in plan.items()})
         for key, plan in PLANS.items()
     ]
+
+
+class CheckoutRequest(BaseModel):
+    plan: Literal["basic", "standard", "pro"]
+    interval: Literal["month", "year"] = "month"
+
+
+class PayRequest(BaseModel):
+    method: str = "card"
+
+
+def _tenant_id(current_user: dict) -> str:
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant linked to your account.")
+    return tenant_id
+
+
+def _payment_failed(error: str, invoice: dict) -> JSONResponse:
+    # 402, and the invoice stays open so the owner can try again.
+    return JSONResponse(status_code=402, content={"detail": error, "invoice_id": invoice.get("invoice_id")})
+
+
+@billing_router.post("/checkout")
+async def checkout(
+    body: CheckoutRequest,
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    """Creates the first invoice for a plan and pays it. Paying starts the subscription."""
+    tenant_id = _tenant_id(current_user)
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+    if subscription_for(tenant).get("status") == "active":
+        raise HTTPException(status_code=409, detail="You already have an active plan. Plan changes come in the next update.")
+
+    invoice = await create_subscription_invoice(db, tenant_id, body.plan, body.interval)
+    paid, error = await pay_open_invoice(db, invoice)
+    if error:
+        return _payment_failed(error, invoice)
+
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"subscription": 1}) or {}
+    return {"invoice": paid, "subscription": tenant.get("subscription", {})}
+
+
+@billing_router.post("/invoices/{invoice_id}/pay")
+async def pay_invoice(
+    invoice_id: str,
+    body: PayRequest = PayRequest(),
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    tenant_id = _tenant_id(current_user)
+    invoice = await db[INVOICES].find_one({"invoice_id": invoice_id, "tenant_id": tenant_id})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found.")
+    if invoice.get("status") != "open":
+        raise HTTPException(status_code=409, detail="This invoice has already been paid.")
+
+    paid, error = await pay_open_invoice(db, invoice, method=body.method)
+    if error:
+        return _payment_failed(error, invoice)
+
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"subscription": 1}) or {}
+    return {"invoice": paid, "subscription": tenant.get("subscription", {})}
+
+
+@billing_router.get("/invoices")
+async def list_invoices(
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    tenant_id = _tenant_id(current_user)
+    cursor = db[INVOICES].find({"tenant_id": tenant_id}, PUBLIC_FIELDS).sort("created_at", -1).limit(50)
+    return await cursor.to_list(length=50)

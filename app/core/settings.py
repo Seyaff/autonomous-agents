@@ -11,6 +11,12 @@ class Settings(BaseSettings):
 
     PINECONE_API_KEY: str
 
+    # Payments. 'dummy' charges nothing; a real gateway replaces it later.
+    PAYMENTS_PROVIDER: str = Field(
+        default="dummy",
+        description="Which payment provider takes subscription payments.",
+    )
+
     # --- LLM provider routing (dev: groq, prod: openai) ---
     LLM_PROVIDER: str = Field(
         default="groq",

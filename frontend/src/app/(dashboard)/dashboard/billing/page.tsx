@@ -1,9 +1,13 @@
 "use client"
 
+import * as React from "react"
+
+import { PayInvoiceDialog, PlanPickerDialog } from "@/components/billing/payment-dialog"
 import { Badge } from "@/components/ui/badge"
-import { usePlans, useSubscription } from "@/hooks/billing/use-subscription"
+import { Button } from "@/components/ui/button"
+import { usePlans, useInvoices, useSubscription } from "@/hooks/billing/use-subscription"
 import { formatMoney } from "@/lib/currency"
-import type { SubscriptionResponse } from "@/services/billing/billing.service"
+import type { Invoice, SubscriptionResponse } from "@/services/billing/billing.service"
 
 const STATUS_LABEL: Record<SubscriptionResponse["status"], string> = {
   trialing: "Free trial",
@@ -18,10 +22,13 @@ function when(iso: string | null) {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
 }
 
-/** Plan, trial and AI chat usage. Read-only: changing plans and paying come in the next part. */
+/** Plan, trial, AI chat usage, plan choice and invoices. */
 export default function BillingPage() {
   const sub = useSubscription()
   const plans = usePlans()
+  const invoices = useInvoices()
+  const [pickerOpen, setPickerOpen] = React.useState(false)
+  const [payingInvoice, setPayingInvoice] = React.useState<Invoice | null>(null)
 
   if (sub.isLoading || !sub.data) {
     return <p className="text-sm text-muted-foreground">Loading your plan…</p>
@@ -34,6 +41,8 @@ export default function BillingPage() {
   const trialing = d.status === "trialing"
   // Same rule as the backend gate: the trial ends at its date or at its chat cap.
   const trialOver = trialing && (d.trial_days_left === 0 || used >= d.included_chats)
+  const canChoose = d.status !== "active"
+  const openInvoices = (invoices.data ?? []).filter((i) => i.status === "open")
 
   return (
     <div className="mx-auto flex w-full max-w-[640px] flex-col gap-6">
@@ -57,7 +66,7 @@ export default function BillingPage() {
         </p>
         {trialing && trialOver ? (
           <p className="text-sm text-need">
-            Your free trial has ended, so the agent has stopped replying to customers. Choosing a plan comes in the next update.
+            Your free trial has ended, so the agent has stopped replying to customers. Choose a plan to start again.
           </p>
         ) : trialing ? (
           <p className="text-sm text-muted-foreground">
@@ -68,6 +77,11 @@ export default function BillingPage() {
             Current period: {when(d.current_period_start)} to {when(d.current_period_end)}
             {d.cancel_at_period_end ? " · Ends at the end of this period" : ""}
           </p>
+        )}
+        {canChoose && (
+          <div>
+            <Button onClick={() => setPickerOpen(true)}>Choose a plan</Button>
+          </div>
         )}
       </section>
 
@@ -119,6 +133,48 @@ export default function BillingPage() {
           WhatsApp fees are billed by Meta to your business directly, not by Siyaf.
         </p>
       </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="font-display text-[15px] font-semibold">Invoices</h2>
+        {openInvoices.map((inv) => (
+          <div key={inv.invoice_id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
+            <div className="flex flex-col">
+              <span className="font-mono text-sm">{inv.invoice_id}</span>
+              <span className="text-xs text-muted-foreground">Due {when(inv.due_at)}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-sm tabular-nums">{formatMoney(inv.amount_pkr, "PKR")}</span>
+              <Button size="sm" onClick={() => setPayingInvoice(inv)}>Pay</Button>
+            </div>
+          </div>
+        ))}
+        {(invoices.data ?? []).filter((i) => i.status === "paid").map((inv) => (
+          <div key={inv.invoice_id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
+            <div className="flex flex-col">
+              <span className="font-mono text-sm">{inv.invoice_id}</span>
+              <span className="text-xs text-muted-foreground">Paid {when(inv.paid_at)}</span>
+            </div>
+            <span className="font-mono text-sm tabular-nums">{formatMoney(inv.amount_pkr, "PKR")}</span>
+          </div>
+        ))}
+        {(invoices.data ?? []).length === 0 && (
+          <p className="rounded-md border border-dashed p-3 font-mono text-xs text-muted-foreground">
+            No invoices yet. They appear here once you choose a plan.
+          </p>
+        )}
+      </section>
+
+      <PlanPickerDialog open={pickerOpen} onOpenChange={setPickerOpen} currentPlanKey={d.plan} />
+      {payingInvoice && (
+        <PayInvoiceDialog
+          invoiceId={payingInvoice.invoice_id}
+          amountPkr={payingInvoice.amount_pkr}
+          open
+          onOpenChange={(o) => {
+            if (!o) setPayingInvoice(null)
+          }}
+        />
+      )}
     </div>
   )
 }
