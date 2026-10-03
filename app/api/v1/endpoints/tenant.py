@@ -1,6 +1,7 @@
 import uuid
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Optional, List, Dict, Any
 
 import httpx
@@ -46,6 +47,11 @@ class TenantUpdatePayload(BaseModel):
     currency: Optional[str] = None
     flat_delivery_fee: Optional[float] = None
     avg_prep_time_minutes: Optional[int] = None
+    timezone: Optional[str] = None
+
+
+class AgentTogglePayload(BaseModel):
+    enabled: bool
 
 
 class TenantPublic(BaseModel):
@@ -67,6 +73,7 @@ class TenantPublic(BaseModel):
     whatsapp_business_id: Optional[str] = None
     phone_number_id: Optional[str] = None
     whatsapp_connected: bool = False
+    agent_enabled: bool = True
     display_phone_number: Optional[str] = None
     operating_hours: List[Any] = Field(default_factory=list)
     delivery_settings: Dict[str, Any] = Field(default_factory=dict)
@@ -181,6 +188,12 @@ async def update_current_tenant(
         update_fields["address"] = payload.address
     if payload.currency:
         update_fields["currency"] = payload.currency
+    if payload.timezone:
+        try:
+            ZoneInfo(payload.timezone)
+        except ZoneInfoNotFoundError:
+            raise HTTPException(status_code=400, detail=f"Unknown timezone: {payload.timezone}")
+        update_fields["timezone"] = payload.timezone
 
     if payload.flat_delivery_fee is not None:
         update_fields["delivery_settings.flat_delivery_fee"] = payload.flat_delivery_fee
@@ -189,6 +202,25 @@ async def update_current_tenant(
 
     await db.tenants.update_one({"tenant_id": tenant_id}, {"$set": update_fields})
     return {"status": "success", "message": "Restaurant settings updated."}
+
+
+@tenant_routes.patch("/current/agent")
+async def set_agent_enabled(
+    payload: AgentTogglePayload,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """Pauses or resumes the customer-support agent for the whole restaurant.
+    While paused, customers still reach the inbox, and the owner replies by hand."""
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+
+    await db.tenants.update_one(
+        {"tenant_id": tenant_id},
+        {"$set": {"agent_enabled": payload.enabled, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return {"status": "success", "agent_enabled": payload.enabled}
 
 
 # ---------------------------------------------------------------------------
