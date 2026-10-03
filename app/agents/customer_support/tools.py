@@ -11,6 +11,7 @@ from repositories.inbox_repo import inbox_repo
 from services.conversation_state import broadcast_conversation_updated
 from services.alerts import raise_alert
 from services.order_service import compute_totals, initial_status_entry
+from services.order_confirmation import AWAITING, find_awaiting, send_summary
 from core.setup_state import hours_status
 from core.settings import settings
 from core.events import broadcast_order_update
@@ -101,6 +102,19 @@ async def create_order_tool(
                 f"(subtotal {currency} {subtotal:.2f}). Ask the customer to add items."
             )
 
+        if not (customer_name or "").strip():
+            return "Ask the customer for their name first. Don't place the order until you have it."
+
+        if not configurable.get("test_mode"):
+            waiting = await find_awaiting(db, tenant_id, customer_phone)
+            if waiting:
+                # Don't stack a second order on top of one the customer hasn't answered yet.
+                await send_summary(db, tenant_doc or {"tenant_id": tenant_id}, waiting)
+                return (
+                    "An order is already waiting for the customer's answer. The summary was sent again. "
+                    "Don't place another one; wait for them to tap Confirm."
+                )
+
         if configurable.get("test_mode"):
             # Test chat: show what would happen, change nothing.
             test_items = ", ".join(f"{i['quantity']}x {i['name']}" for i in formatted_items)
@@ -116,7 +130,7 @@ async def create_order_tool(
             "order_id": order_id,
             "tenant_id": tenant_id,
             "customer_phone": customer_phone,
-            "customer_name": customer_name,
+            "customer_name": customer_name.strip(),
             "conversation_id": f"conv_{tenant_id}_{customer_phone}",
             "source": "ai_agent",
             "delivery_address": delivery_address,
@@ -128,39 +142,28 @@ async def create_order_tool(
             "eta_minutes": eta_minutes,
             "payment_method": payment_method,
             "customer_notes": customer_notes,
-            "status": "pending",  # pending, accepted, preparing, out_for_delivery, delivered, cancelled
+            # Not placed until the customer taps Confirm.
+            "status": AWAITING,
             "status_history": [initial_status_entry(now, by="agent")],
             "created_at": now,
             "updated_at": now,
         }
 
         result = await db["orders"].insert_one(order_document)
+        if not result.inserted_id:
+            return "Database error: Could not save the order draft."
 
-        if result.inserted_id:
-            order_document["_id"] = str(result.inserted_id)
-            # Push real-time event to owner dashboard
-            try:
-                await broadcast_order_update(
-                    tenant_id=tenant_id,
-                    event_type="order.created",
-                    order_data=order_document
-                )
-            except Exception as be:
-                logger.warning(f"Could not broadcast order update: {be}")
+        sent = await send_summary(db, tenant_doc or {"tenant_id": tenant_id}, order_document)
+        if not sent.ok:
+            logger.warning(f"Order summary for {order_id} could not be sent: {sent.error_message}")
+            await db["orders"].update_one({"order_id": order_id}, {"$set": {"status": "cancelled", "cancellation_reason": "Summary not delivered"}})
+            return "The order summary could not be sent to the customer. Ask them to send their order again."
 
-            items_summary = ", ".join([f"{i['quantity']}x {i['name']}" for i in formatted_items])
-            return (
-                f"Order placed successfully! Reference ID: {order_id}.\n"
-                f"Items: {items_summary}\n"
-                f"Subtotal: {currency} {subtotal:.2f}, Delivery: {currency} {delivery_fee:.2f}\n"
-                f"Total Amount: {currency} {total_amount:.2f}\n"
-                f"Estimated time: about {eta_minutes} minutes\n"
-                f"Delivery Address: {delivery_address}\n"
-                f"Payment Method: {payment_method.upper()}\n"
-                f"Status: PENDING confirmation by the restaurant."
-            )
-
-        return "Database error: Could not record order in database."
+        return (
+            f"Summary sent to the customer with Confirm and Cancel buttons (order {order_id}). "
+            "The order is NOT placed yet. Do not say it is placed or confirmed. "
+            "Ask the customer to tap Confirm, and say the restaurant will get it once they do."
+        )
 
     except PyMongoError as e:
         logger.error(f"PyMongo error in create_order_tool: {e}")

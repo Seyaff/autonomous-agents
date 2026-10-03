@@ -13,6 +13,9 @@ export type OrderStatus =
   | "out_for_delivery"
   | "delivered"
   | "cancelled"
+  // Drafted by the agent, waiting for the customer to tap Confirm. Not sent to the kitchen yet.
+  | "awaiting_customer"
+  | "expired"
 
 export const ORDER_STATUS_DISPLAY: Record<OrderStatus, { label: string; tone: ChipTone }> = {
   pending: { label: "New", tone: "new" },
@@ -21,6 +24,8 @@ export const ORDER_STATUS_DISPLAY: Record<OrderStatus, { label: string; tone: Ch
   out_for_delivery: { label: "On the way", tone: "neutral" },
   delivered: { label: "Delivered", tone: "ok" },
   cancelled: { label: "Cancelled", tone: "need" },
+  awaiting_customer: { label: "Awaiting customer", tone: "neutral" },
+  expired: { label: "Expired", tone: "neutral" },
 }
 
 // Message delivery status, as returned by the inbox endpoints.

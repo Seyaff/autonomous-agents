@@ -232,6 +232,43 @@ async def _report_send_failure(database, tenant_id: str, sender_phone: str, resu
         )
 
 
+async def handle_button_reply(
+    database,
+    tenant: Dict[str, Any],
+    tenant_id: str,
+    sender_phone: str,
+    button_id: str,
+    button_title: str,
+    wamid: Optional[str],
+    request_id: str = "bg",
+):
+    """A customer tapped a button (Confirm or Cancel on an order summary)."""
+    from services.order_confirmation import handle_tap
+
+    try:
+        await message_service.persist_inbound(
+            tenant_id=tenant_id,
+            sender_phone=sender_phone,
+            content=f"[{button_title}]",
+            message_type="text",
+            wamid=wamid or request_id,
+            customer_name="",
+        )
+        outcome = await handle_tap(database, tenant, sender_phone, button_id)
+        logger.info(f"[{request_id}] Button '{button_title}' from [{sender_phone}]: {outcome}")
+    except Exception as e:
+        logger.exception(f"[{request_id}] Button handling failed for {sender_phone}: {e}")
+        await raise_alert(
+            database,
+            tenant_id,
+            kind="order_confirmation_failed",
+            title=f"A customer's order answer ({button_title}) wasn't handled",
+            detail=f"Check the order for {sender_phone} in the orders page. ({type(e).__name__})",
+            severity="critical",
+            ref={"customer_phone": sender_phone},
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main webhook receiver
 # ---------------------------------------------------------------------------
@@ -376,6 +413,22 @@ async def receive_meta_webhook(
                 tenant_phone_id=tenant_phone_id,
                 request_id=request_id,
                 customer_name=customer_name,
+            )
+
+    elif msg_type == "interactive":
+        # A button tap (Confirm / Cancel on an order summary).
+        button = (msg.get("interactive") or {}).get("button_reply") or {}
+        if button.get("id") and sender_phone:
+            background_tasks.add_task(
+                handle_button_reply,
+                database=database,
+                tenant=tenant,
+                tenant_id=tenant_id,
+                sender_phone=sender_phone,
+                button_id=button["id"],
+                button_title=button.get("title", ""),
+                wamid=msg.get("id"),
+                request_id=request_id,
             )
 
     elif msg_type == "audio":
