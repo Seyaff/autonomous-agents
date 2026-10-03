@@ -1,181 +1,142 @@
 "use client"
 
-import * as React from "react"
-import { toast } from "sonner"
-import { DownloadIcon, Loader2Icon, SearchIcon } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Textarea } from "@/components/ui/textarea"
-import { useHuntLeads } from "@/hooks/founder/use-hunt-leads"
-import { useCampaigns } from "@/hooks/founder/use-campaigns"
-import { getCampaignExportPath } from "@/services/founder/founder.service"
+import { getOperatedAlerts, getRestaurants, type OperatedRestaurant, type RestaurantHealth } from "@/services/operations/operations.service"
 
-export default function FounderPage() {
-  const [query, setQuery] = React.useState("")
-  const [maxLeads, setMaxLeads] = React.useState(15)
+const HEALTH: Record<RestaurantHealth, { label: string; cls: string }> = {
+  healthy: { label: "Healthy", cls: "bg-ok-soft text-ok" },
+  needs_attention: { label: "Needs attention", cls: "bg-need-soft text-need" },
+  setting_up: { label: "Setting up", cls: "bg-muted text-muted-foreground" },
+}
 
-  const { mutate: hunt, isPending } = useHuntLeads()
-  const { data: campaigns, isLoading: campaignsLoading } = useCampaigns()
+const SEVERITY_DOT: Record<string, string> = {
+  critical: "bg-need",
+  warning: "bg-ai",
+  info: "bg-new",
+}
 
-  function handleHunt(e: React.FormEvent) {
-    e.preventDefault()
-    const trimmed = query.trim()
-    if (!trimmed || isPending) return
+function ago(iso: string | null) {
+  if (!iso) return "never"
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins} min ago`
+  if (mins < 1440) return `${Math.round(mins / 60)} h ago`
+  return `${Math.round(mins / 1440)} d ago`
+}
 
-    hunt(
-      { query: trimmed, maxLeads },
-      {
-        onSuccess: (result) => {
-          toast.success(
-            `Found ${result.total_leads} leads (${result.breakdown.hot} hot, ${result.breakdown.warm} warm, ${result.breakdown.premium} premium)`
-          )
-          setQuery("")
-        },
-      }
-    )
+/** What is happening across every restaurant, at a glance. Read-only. */
+export default function OperationsPage() {
+  const restaurants = useQuery({ queryKey: ["ops", "restaurants"], queryFn: getRestaurants, refetchInterval: 30_000 })
+  const alerts = useQuery({ queryKey: ["ops", "alerts"], queryFn: getOperatedAlerts, refetchInterval: 30_000 })
+
+  const rows = restaurants.data?.restaurants ?? []
+  const counts = {
+    total: rows.length,
+    attention: rows.filter((r) => r.health === "needs_attention").length,
+    setting_up: rows.filter((r) => r.health === "setting_up").length,
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">
-          Lead generation
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Prompt your growth agent to find and qualify leads. Each run
-          produces a scored campaign you can review and export.
-        </p>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Hunt for leads</CardTitle>
-          <CardDescription>
-            Describe who you&apos;re targeting — the agent searches, scores,
-            and tiers them into Hot / Warm / Premium.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleHunt} className="flex flex-col gap-4">
-            <Textarea
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="e.g. Scrape top real estate agencies in Florida and analyze their customer response"
-              rows={3}
-              disabled={isPending}
-            />
-            <div className="flex items-end gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="maxLeads" className="text-xs">
-                  Max leads
-                </Label>
-                <Input
-                  id="maxLeads"
-                  type="number"
-                  min={5}
-                  max={50}
-                  value={maxLeads}
-                  onChange={(e) => setMaxLeads(Number(e.target.value) || 15)}
-                  className="w-24"
-                  disabled={isPending}
-                />
-              </div>
-              <Button
-                type="submit"
-                disabled={!query.trim() || isPending}
-                className="gap-2"
-              >
-                {isPending ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : (
-                  <SearchIcon className="size-4" />
-                )}
-                {isPending ? "Hunting..." : "Hunt leads"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
-          Campaigns
-        </h2>
-
-        {campaignsLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-16 w-full" />
-            ))}
-          </div>
-        ) : !campaigns || campaigns.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No campaigns yet — run your first lead hunt above.
+    <div className="space-y-6 p-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-heading text-lg">Operations</h1>
+          <p className="font-mono text-[12px] text-muted-foreground">
+            {counts.total} restaurants · {counts.attention} need attention · {counts.setting_up} setting up
           </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {campaigns.map((c) => (
-              <Card key={c.campaign_id}>
-                <CardContent className="flex items-center justify-between gap-4 p-4">
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <p className="truncate text-sm font-medium">{c.query}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{c.total_leads} leads</span>
-                      <span>·</span>
-                      <span>{new Date(c.created_at).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="border-transparent bg-(--status-danger-bg) text-(--status-danger-fg)"
-                    >
-                      {c.hot_count} hot
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className="border-transparent bg-(--status-warning-bg) text-(--status-warning-fg)"
-                    >
-                      {c.warm_count} warm
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className="border-transparent bg-(--status-info-bg) text-(--status-info-fg)"
-                    >
-                      {c.premium_count} premium
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      render={
-                        <a
-                          href={getCampaignExportPath(c.campaign_id)}
-                          target="_blank"
-                          rel="noreferrer"
-                        />
-                      }
-                    >
-                      <DownloadIcon className="size-4" />
-                      <span className="sr-only">Download Excel</span>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+        </div>
+        <p className="font-mono text-[11px] text-muted-foreground">Refreshes every 30 seconds</p>
       </div>
+
+      <section className="overflow-x-auto rounded-lg border border-border bg-card">
+        <table className="w-full min-w-[960px] text-sm">
+          <thead className="bg-muted/50 text-left font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Restaurant</th>
+              <th className="px-3 py-2 font-medium">Health</th>
+              <th className="px-3 py-2 font-medium">WhatsApp</th>
+              <th className="px-3 py-2 font-medium">Last customer</th>
+              <th className="px-3 py-2 text-right font-medium">Msgs today</th>
+              <th className="px-3 py-2 text-right font-medium">Orders today</th>
+              <th className="px-3 py-2 text-right font-medium">Failed 24h</th>
+              <th className="px-3 py-2 text-right font-medium">Open escalations</th>
+              <th className="px-3 py-2 text-right font-medium">AI this month</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <Row key={r.tenant_id} r={r} />
+            ))}
+            {restaurants.isSuccess && rows.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-3 py-6 text-center font-mono text-[12px] text-muted-foreground">
+                  No restaurants yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card">
+        <div className="border-b border-border px-4 py-2 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+          Latest alerts, all restaurants
+        </div>
+        <ul className="divide-y divide-border">
+          {(alerts.data?.alerts ?? []).map((a) => (
+            <li key={a.id} className={`flex gap-3 px-4 py-2.5 ${a.read ? "opacity-60" : ""}`}>
+              <span className={`mt-1.5 size-2 shrink-0 rounded-full ${SEVERITY_DOT[a.severity] ?? "bg-new"}`} aria-hidden />
+              <div className="min-w-0">
+                <p className="text-sm">
+                  <span className="font-medium">{a.business_name}</span> · {a.title}
+                </p>
+                {a.detail && <p className="text-xs text-muted-foreground">{a.detail}</p>}
+                <p className="font-mono text-[11px] text-muted-foreground">{ago(a.created_at)}</p>
+              </div>
+            </li>
+          ))}
+          {alerts.isSuccess && (alerts.data?.alerts ?? []).length === 0 && (
+            <li className="px-4 py-6 font-mono text-[12px] text-muted-foreground">No alerts.</li>
+          )}
+        </ul>
+      </section>
     </div>
+  )
+}
+
+function Row({ r }: { r: OperatedRestaurant }) {
+  const health = HEALTH[r.health]
+  return (
+    <tr className="border-t border-border align-top">
+      <td className="px-3 py-2.5">
+        <p className="font-medium">{r.business_name}</p>
+        <p className="font-mono text-[11px] text-muted-foreground">
+          {r.owner_email ?? "no owner"}{r.country ? ` · ${r.country}` : ""}
+        </p>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className={`inline-flex rounded-md px-2 py-0.5 font-mono text-[11px] ${health.cls}`}>{health.label}</span>
+      </td>
+      <td className="px-3 py-2.5">
+        <p className={r.whatsapp_status === "connected" ? "text-ok" : r.whatsapp_status === "error" ? "text-need" : "text-muted-foreground"}>
+          {r.whatsapp_status}
+        </p>
+        {r.whatsapp_error && <p className="max-w-[260px] text-xs text-need">{r.whatsapp_error}</p>}
+        {!r.agent_enabled && <p className="text-xs text-muted-foreground">agent paused</p>}
+      </td>
+      <td className="px-3 py-2.5 font-mono text-[12px]">{ago(r.last_customer_activity)}</td>
+      <td className="px-3 py-2.5 text-right font-mono tabular-nums">{r.messages_today}</td>
+      <td className="px-3 py-2.5 text-right font-mono tabular-nums">{r.orders_today}</td>
+      <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${r.failed_messages_24h > 0 ? "text-need" : ""}`}>
+        {r.failed_messages_24h}
+      </td>
+      <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${r.escalations_open > 0 ? "text-ai" : ""}`}>
+        {r.escalations_open}
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+        {r.ai_conversations_this_month} / {r.plan_limit}
+      </td>
+    </tr>
   )
 }
