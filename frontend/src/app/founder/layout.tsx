@@ -20,7 +20,7 @@ export default function FounderLayout({
             <SparklesIcon className="size-4" />
           </div>
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold">Founder Console</span>
+            <span className="text-sm font-semibold">Operations</span>
             <span className="text-xs text-muted-foreground">
               {user?.full_name}
             </span>
