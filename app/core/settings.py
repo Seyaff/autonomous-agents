@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4.1"
 
+    # Fernet key for encrypting customers' WhatsApp tokens at rest. Required in production.
+    TOKEN_ENCRYPTION_KEY: str = ""
+
     # Cheap model for memory extraction (runs after every customer message).
     # Kept separate from the reply model so memory costs stay low.
     MEMORY_GROQ_MODEL: str = "openai/gpt-oss-20b"
