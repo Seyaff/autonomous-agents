@@ -72,23 +72,18 @@ export function WhatsAppStep() {
         </>
       )}
 
+      {!connected && (
+        <p className="text-sm text-need">
+          Your agent won&apos;t answer customers until this number is connected.
+        </p>
+      )}
+
       <StepError message={error ?? (complete.isError ? "Could not save this step. Try again." : null)} />
 
       <DialogFooter>
         <Button variant="outline" onClick={() => router.push("/setup/test")}>
           Back
         </Button>
-        {!connected && (
-          <Button
-            variant="ghost"
-            disabled={complete.isPending}
-            onClick={() =>
-              complete.mutate({ step: "whatsapp", action: "skip" }, { onSuccess: () => router.push("/setup/done") })
-            }
-          >
-            Do this later
-          </Button>
-        )}
         {connected && (
           <Button
             disabled={complete.isPending}

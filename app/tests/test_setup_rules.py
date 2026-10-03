@@ -46,6 +46,11 @@ def test_done_when_everything_handled():
     assert current_step(state) == "done"
 
 
+def test_whatsapp_cannot_be_skipped():
+    problem = validate_action(SetupState(completed_steps=["restaurant", "hours", "agent", "test"]), "whatsapp", "skip")
+    assert problem is not None
+
+
 def test_cannot_skip_a_required_step():
     problem = validate_action(SetupState(), "hours", "skip")
     assert problem and problem[0] == 400
