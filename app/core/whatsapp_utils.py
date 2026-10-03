@@ -15,17 +15,25 @@ GRAPH = "https://graph.facebook.com/v19.0"
 AUTH_ERROR_CODES = {190, 10, 200}
 
 
-def resolve_tenant_whatsapp_credentials(tenant: Optional[Dict[str, Any]]) -> Tuple[str, str]:
-    """
-    Returns (access_token, phone_number_id) for a tenant.
+NOT_CONNECTED = "This restaurant hasn't connected its WhatsApp yet. Connect it in Settings."
 
-    Prefers the tenant's own connected WhatsApp (set via /tenant/meta-embedded-signup);
-    falls back to the shared .env test credentials while Meta review/testing is pending.
+
+def resolve_tenant_whatsapp_credentials(tenant: Optional[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Returns (access_token, phone_number_id) for a tenant, or None for either one that
+    the restaurant hasn't connected yet.
+
+    Every restaurant uses its own Meta Embedded Signup credentials. Nothing falls back
+    to a shared server-wide token, so one restaurant can never send as another.
     The stored token is decrypted here, and only here.
     """
     tenant = tenant or {}
-    token = reveal(tenant.get("whatsapp_access_token")) or settings.WHATSAPP_TOKEN
-    phone_number_id = tenant.get("phone_number_id") or settings.WHATSAPP_PHONE_NUMBER_ID
+    return reveal(tenant.get("whatsapp_access_token")), tenant.get("phone_number_id")
+
+
+def _require_credentials(token: Optional[str], phone_number_id: Optional[str]) -> Optional[Tuple[str, str]]:
+    if not token or not phone_number_id:
+        return None
     return token, phone_number_id
 
 
@@ -56,8 +64,10 @@ async def send_text(
     phone_number_id: Optional[str] = None,
 ) -> SendResult:
     """Sends a text message and says why it failed, so the caller can tell the owner."""
-    auth_token = token or settings.WHATSAPP_TOKEN
-    phone_id = phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+    creds = _require_credentials(token, phone_number_id)
+    if creds is None:
+        return SendResult(ok=False, error_message=NOT_CONNECTED)
+    auth_token, phone_id = creds
 
     url = f"{GRAPH}/{phone_id}/messages"
     headers = {
@@ -130,7 +140,9 @@ async def subscribe_business_account(token: str, waba_id: str) -> None:
 
 async def download_whatsapp_media(media_id: str, token: Optional[str] = None) -> bytes:
     """Fetches media URL using Meta's media_id and returns raw bytes from memory."""
-    auth_token = token or settings.WHATSAPP_TOKEN
+    if not token:
+        raise ValueError(NOT_CONNECTED)
+    auth_token = token
     headers = {"Authorization": f"Bearer {auth_token}"}
 
     async with httpx.AsyncClient(timeout=20.0) as client:
@@ -163,8 +175,10 @@ async def send_buttons(
 ) -> SendResult:
     """Sends a message with up to three tap-able buttons. Each button is {"id", "title"}.
     The customer's tap comes back to the webhook with the button's id."""
-    auth_token = token or settings.WHATSAPP_TOKEN
-    phone_id = phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+    creds = _require_credentials(token, phone_number_id)
+    if creds is None:
+        return SendResult(ok=False, error_message=NOT_CONNECTED)
+    auth_token, phone_id = creds
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",

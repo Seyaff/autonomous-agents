@@ -367,30 +367,17 @@ async def receive_meta_webhook(
         return {"status": "success"}  # always ACK Meta
 
     # ---- 2. Resolve tenant ----
+    # Route only by the number the message was sent to. Never guess a restaurant:
+    # answering as the wrong one would put a customer's message in another owner's inbox.
     tenant = None
     if inbound_phone_id:
         tenant = await database["tenants"].find_one({"phone_number_id": inbound_phone_id})
-    if not tenant and display_number:
-        tenant = await database["tenants"].find_one(
-            {"display_phone_number": display_number}
-        )
     if not tenant:
-        # No phone-based match (expected during testing, when tenants are
-        # still using the shared env WhatsApp credentials rather than their
-        # own connected number). Only safe to guess when there is exactly
-        # one tenant in the whole system — with more than one, guessing
-        # would answer a customer as the wrong restaurant and leak their
-        # message into the wrong owner's inbox.
-        tenant_count = await database["tenants"].count_documents({})
-        if tenant_count == 1:
-            tenant = await database["tenants"].find_one({})
-        else:
-            logger.warning(
-                f"[{request_id}] Could not match inbound WhatsApp message to a tenant "
-                f"(phone_number_id={inbound_phone_id}, display_number={display_number}) "
-                f"and {tenant_count} tenants exist — refusing to guess which one to answer as."
-            )
-            return {"status": "no_tenant_matched"}
+        logger.warning(
+            f"[{request_id}] No restaurant is connected to phone_number_id={inbound_phone_id} "
+            f"(display_number={display_number}). Message not answered."
+        )
+        return {"status": "no_tenant_matched"}
 
     if not tenant:
         logger.warning(f"[{request_id}] No tenant configured in database for inbound WhatsApp message.")
