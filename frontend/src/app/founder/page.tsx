@@ -120,7 +120,7 @@ function Row({ r }: { r: OperatedRestaurant }) {
       </td>
       <td className="px-3 py-2.5">
         <p className={r.whatsapp_status === "connected" ? "text-ok" : r.whatsapp_status === "error" ? "text-need" : "text-muted-foreground"}>
-          {r.whatsapp_status}
+          {r.whatsapp_status === "shared_number" ? "shared number" : r.whatsapp_status}
         </p>
         {r.whatsapp_error && <p className="max-w-[260px] text-xs text-need">{r.whatsapp_error}</p>}
         {!r.agent_enabled && <p className="text-xs text-muted-foreground">agent paused</p>}
