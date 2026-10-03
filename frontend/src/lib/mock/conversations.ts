@@ -1,6 +1,6 @@
 import type { Conversation } from "@/services/inbox/inbox.service"
 
-export type QueueGroup = "needs_you" | "agent_handling" | "resolved"
+export type QueueGroup = "needs_you" | "owner_handling" | "agent_handling" | "resolved"
 
 export interface MockConversation extends Conversation {
   group: QueueGroup

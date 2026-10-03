@@ -4,9 +4,10 @@ import { ConversationRow } from "@/components/console/conversation-row"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { QueueGroups } from "@/hooks/console/use-queue"
 
-const GROUP_ORDER: (keyof QueueGroups)[] = ["needs_you", "agent_handling", "resolved"]
+const GROUP_ORDER: (keyof QueueGroups)[] = ["needs_you", "owner_handling", "agent_handling", "resolved"]
 const GROUP_LABELS: Record<keyof QueueGroups, string> = {
   needs_you: "Needs you",
+  owner_handling: "You're handling",
   agent_handling: "Agent handling",
   resolved: "Resolved today",
 }
@@ -22,7 +23,7 @@ export function QueuePane({
   selectedId: string | null
   onSelect: (id: string) => void
 }) {
-  const total = groups.needs_you.length + groups.agent_handling.length + groups.resolved.length
+  const total = GROUP_ORDER.reduce((n, key) => n + groups[key].length, 0)
 
   return (
     <div className="flex h-full w-full shrink-0 flex-col overflow-y-auto border-r border-border bg-card md:w-[300px]">

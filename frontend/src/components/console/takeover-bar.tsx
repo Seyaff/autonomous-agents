@@ -7,9 +7,11 @@ import type { MockConversation } from "@/lib/mock/conversations"
 export function TakeoverBar({
   conversation,
   onToggle,
+  onResolveEscalation,
 }: {
   conversation: Pick<MockConversation, "status" | "escalated" | "takeoverByOwner">
   onToggle: () => void
+  onResolveEscalation: () => void
 }) {
   const chip: { tone: ChipTone; label: string } =
     conversation.status === "closed"
@@ -26,6 +28,11 @@ export function TakeoverBar({
       {conversation.status !== "closed" && (
         <Button variant="outline" size="xs" onClick={onToggle}>
           {conversation.takeoverByOwner ? "Hand back to agent" : "Take over"}
+        </Button>
+      )}
+      {conversation.escalated && conversation.status !== "closed" && (
+        <Button variant="ghost" size="xs" onClick={onResolveEscalation}>
+          Mark handled
         </Button>
       )}
     </div>

@@ -21,6 +21,7 @@ type WSEventType =
   | "order.created"
   | "order.updated"
   | "order.cancelled"
+  | "conversation.updated"
   | "report.weekly_generated"
 
 interface WSEvent {
@@ -72,6 +73,16 @@ export function useInboxSocket(enabled: boolean) {
             if (conversationId) {
               queryClient.invalidateQueries({
                 queryKey: ["inbox", "conversation", conversationId],
+              })
+            }
+            break
+          }
+          case "conversation.updated": {
+            const updated = parsed.payload?.conversation as { conversation_id?: string } | undefined
+            queryClient.invalidateQueries({ queryKey: ["inbox", "conversations"] })
+            if (updated?.conversation_id) {
+              queryClient.invalidateQueries({
+                queryKey: ["inbox", "conversation", updated.conversation_id],
               })
             }
             break

@@ -10,6 +10,7 @@ WSEventType = Literal[
     "order.created",
     "order.updated",
     "order.cancelled",
+    "conversation.updated",
     "report.weekly_generated",
     "agent.step",
     "agent.reply",

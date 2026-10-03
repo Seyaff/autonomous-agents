@@ -23,6 +23,7 @@ from agents.customer_support.tools import (
     get_order_status_tool,
     update_order_tool,
     cancel_order_tool,
+    escalate_to_owner,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ tools = [
     get_order_status_tool,
     update_order_tool,
     cancel_order_tool,
+    escalate_to_owner,
 ]
 
 _agent_cache: Dict[str, CompiledStateGraph] = {}
