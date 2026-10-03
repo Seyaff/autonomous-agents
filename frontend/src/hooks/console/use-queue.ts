@@ -32,21 +32,15 @@ export function patchMockConversation(
 
 /** Shared real→mock-shape mapping, used by both the queue (list) and the
  * thread (single-conversation fetch) so a conversation reached by direct
- * link looks identical to one reached via the list. */
+ * link looks identical to one reached via the list. The group, escalation
+ * and ownership all come from the server — nothing is guessed here. */
 export function toQueueConversation(c: Conversation): MockConversation {
   return {
     ...c,
-    // TODO(backend): no escalation/takeover flag exists yet (owner
-    // roadmap #1) — this approximates "needs you" from unread count until
-    // that ships.
-    group:
-      c.status === "closed" || c.status === "archived"
-        ? "resolved"
-        : c.unread_count > 0
-          ? "needs_you"
-          : "agent_handling",
-    escalated: false,
-    takeoverByOwner: false,
+    group: c.group ?? "agent_handling",
+    escalated: Boolean(c.escalation?.active),
+    escalationReason: c.escalation?.summary,
+    takeoverByOwner: c.handled_by === "owner",
     isAgentTyping: false,
   }
 }
@@ -61,12 +55,13 @@ function filterMockBySearch(conversations: MockConversation[], search?: string) 
 
 export interface QueueGroups {
   needs_you: MockConversation[]
+  owner_handling: MockConversation[]
   agent_handling: MockConversation[]
   resolved: MockConversation[]
 }
 
 function groupConversations(conversations: MockConversation[]): QueueGroups {
-  const groups: QueueGroups = { needs_you: [], agent_handling: [], resolved: [] }
+  const groups: QueueGroups = { needs_you: [], owner_handling: [], agent_handling: [], resolved: [] }
   for (const c of conversations) {
     groups[c.group].push(c)
   }

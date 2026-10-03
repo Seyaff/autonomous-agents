@@ -82,6 +82,7 @@ export default function DashboardPage() {
             onToggleTakeover={() =>
               selectedConversation && thread.toggleTakeover(selectedConversation.takeoverByOwner)
             }
+            onResolveEscalation={thread.resolveEscalation}
           />
         </div>
         <RailPane

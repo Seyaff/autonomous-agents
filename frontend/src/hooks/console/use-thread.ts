@@ -1,12 +1,12 @@
 "use client"
 
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
 import { MOCK_TENANT_ID } from "@/lib/mock/conversations"
 import { MOCK_MESSAGES, type MockMessage } from "@/lib/mock/messages"
 import { useConversation } from "@/hooks/inbox/use-conversation"
 import { useSendMessage } from "@/hooks/inbox/use-send-message"
 import { useMarkConversationRead } from "@/hooks/inbox/use-mark-read"
+import { useTakeover } from "@/hooks/inbox/use-takeover"
 import { patchMockConversation, toQueueConversation, useMockQueueData } from "@/hooks/console/use-queue"
 import { USE_MOCKS } from "@/lib/mocks"
 import type { MockConversation } from "@/lib/mock/conversations"
@@ -37,6 +37,7 @@ export function useThread(conversationId: string | null) {
   const real = useConversation(USE_MOCKS ? null : conversationId)
   const realSend = useSendMessage(conversationId ?? "")
   const realMarkRead = useMarkConversationRead()
+  const realTakeover = useTakeover(conversationId ?? "")
 
   const messages: MockMessage[] = USE_MOCKS ? mockMessages.data ?? [] : real.data?.messages ?? []
 
@@ -88,11 +89,20 @@ export function useThread(conversationId: string | null) {
   function toggleTakeover(current: boolean) {
     if (!conversationId) return
     if (!USE_MOCKS) {
-      // TODO(backend): takeover isn't wired to any API yet (owner roadmap #1).
-      toast.info("Takeover isn't wired to the backend yet.")
+      if (current) realTakeover.handBack.mutate()
+      else realTakeover.takeOver.mutate()
       return
     }
     patchMockConversation(queryClient, conversationId, { takeoverByOwner: !current })
+  }
+
+  function resolveEscalation() {
+    if (!conversationId) return
+    if (USE_MOCKS) {
+      patchMockConversation(queryClient, conversationId, { escalated: false })
+      return
+    }
+    realTakeover.resolve.mutate()
   }
 
   return {
@@ -107,6 +117,8 @@ export function useThread(conversationId: string | null) {
     send,
     markRead,
     toggleTakeover,
+    resolveEscalation,
     isSending: USE_MOCKS ? false : realSend.isPending,
+    isTakeoverPending: USE_MOCKS ? false : realTakeover.takeOver.isPending || realTakeover.handBack.isPending,
   }
 }

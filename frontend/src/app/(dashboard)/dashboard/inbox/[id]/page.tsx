@@ -51,6 +51,7 @@ export default function InboxConversationPage({
       isSending={thread.isSending}
       onSend={thread.send}
       onToggleTakeover={() => thread.conversation && thread.toggleTakeover(thread.conversation.takeoverByOwner)}
+      onResolveEscalation={thread.resolveEscalation}
     />
   )
 }

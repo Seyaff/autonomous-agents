@@ -35,6 +35,7 @@ export function ThreadPane({
   isSending,
   onSend,
   onToggleTakeover,
+  onResolveEscalation,
 }: {
   conversation: MockConversation | null
   messages: MockMessage[]
@@ -42,6 +43,7 @@ export function ThreadPane({
   isSending: boolean
   onSend: (text: string) => void
   onToggleTakeover: () => void
+  onResolveEscalation: () => void
 }) {
   const [draft, setDraft] = React.useState("")
   const scrollRef = React.useRef<HTMLDivElement>(null)
@@ -84,7 +86,11 @@ export function ThreadPane({
           <p className="truncate text-sm font-medium">{conversation.customer_name}</p>
           <p className="truncate text-xs text-muted-foreground">{conversation.customer_phone}</p>
         </div>
-        <TakeoverBar conversation={conversation} onToggle={onToggleTakeover} />
+        <TakeoverBar
+          conversation={conversation}
+          onToggle={onToggleTakeover}
+          onResolveEscalation={onResolveEscalation}
+        />
       </header>
 
       <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-y-auto bg-muted/30 p-4">

@@ -11,9 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ConversationRow } from "@/components/console/conversation-row"
 import { useQueue, type QueueGroups } from "@/hooks/console/use-queue"
 
-const GROUP_ORDER: (keyof QueueGroups)[] = ["needs_you", "agent_handling", "resolved"]
+const GROUP_ORDER: (keyof QueueGroups)[] = ["needs_you", "owner_handling", "agent_handling", "resolved"]
 const GROUP_LABELS: Record<keyof QueueGroups, string> = {
   needs_you: "Needs you",
+  owner_handling: "You're handling",
   agent_handling: "Agent handling",
   resolved: "Resolved today",
 }
@@ -30,10 +31,11 @@ export function InboxSidebar() {
 
   const filtered: QueueGroups = {
     needs_you: groups.needs_you.filter((c) => !unreadOnly || c.unread_count > 0),
+    owner_handling: groups.owner_handling.filter((c) => !unreadOnly || c.unread_count > 0),
     agent_handling: groups.agent_handling.filter((c) => !unreadOnly || c.unread_count > 0),
     resolved: groups.resolved.filter((c) => !unreadOnly || c.unread_count > 0),
   }
-  const total = filtered.needs_you.length + filtered.agent_handling.length + filtered.resolved.length
+  const total = GROUP_ORDER.reduce((n, key) => n + filtered[key].length, 0)
 
   // decodeURIComponent is safe to apply even if usePathname() already
   // decoded it — it's a no-op once there's no %XX left to unescape.

@@ -21,6 +21,26 @@ export interface Conversation {
   created_at: string
   updated_at: string
   last_activity_at: string
+  // Server-computed queue group and ownership (DYNAMIC_DATA_PLAN §2).
+  group?: "needs_you" | "owner_handling" | "agent_handling" | "resolved"
+  handled_by?: "agent" | "owner"
+  handed_over_at?: string | null
+  handed_over_by_user_id?: string | null
+  escalation?: {
+    active: boolean
+    reason: string
+    summary: string
+    raised_at: string
+    resolved_at?: string | null
+    resolved_by?: string | null
+  } | null
+}
+
+export type GroupCounts = {
+  needs_you: number
+  owner_handling: number
+  agent_handling: number
+  resolved: number
 }
 
 export interface Message {
@@ -44,6 +64,7 @@ export interface ConversationListResponse {
   page: number
   limit: number
   unread_total: number
+  group_counts?: GroupCounts
 }
 
 export interface ConversationDetailResponse {
@@ -80,6 +101,21 @@ export const updateConversation = async (
 ) => {
   const res = await API.patch(`/inbox/conversations/${conversationId}`, payload)
   return res.data
+}
+
+export const takeOverConversation = async (conversationId: string) => {
+  const res = await API.post(`/inbox/conversations/${conversationId}/takeover`)
+  return res.data.conversation as Conversation
+}
+
+export const handBackConversation = async (conversationId: string) => {
+  const res = await API.post(`/inbox/conversations/${conversationId}/handback`)
+  return res.data.conversation as Conversation
+}
+
+export const resolveEscalation = async (conversationId: string) => {
+  const res = await API.post(`/inbox/conversations/${conversationId}/escalation/resolve`)
+  return res.data.conversation as Conversation
 }
 
 export const markConversationRead = async (conversationId: string) => {

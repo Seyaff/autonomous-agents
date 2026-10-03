@@ -1,12 +1,14 @@
 import uuid
 import logging
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from pymongo.errors import PyMongoError
 
 from core.database import get_database
+from repositories.inbox_repo import inbox_repo
+from services.conversation_state import broadcast_conversation_updated
 from core.settings import settings
 from core.events import broadcast_order_update
 from memory.customer_memory import update_customer_profile
@@ -295,3 +297,38 @@ async def cancel_order_tool(
     except Exception as e:
         logger.error(f"Error cancelling order: {e}")
         return f"Could not cancel order: {str(e)}"
+
+@tool
+async def escalate_to_owner(
+    reason: Literal["refund", "complaint", "human_requested", "agent_failed", "other"],
+    summary: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Hands this customer's chat to the restaurant owner. Use it for refund
+    requests, complaints, requests to speak to a person, and anything you
+    cannot resolve from the menu or order tools. After calling it, tell the
+    customer you've passed this to the restaurant and a person will follow up.
+
+    Args:
+        reason: Why it needs a person: refund, complaint, human_requested, agent_failed, other.
+        summary: One line for the owner, e.g. "Wants refund for cold biryani, ORD-6A21".
+    """
+    configurable = config.get("configurable", {}) if config else {}
+    tenant_id = configurable.get("tenant_id")
+    customer_phone = configurable.get("customer_phone")
+    if not tenant_id or not customer_phone:
+        return "Could not escalate: missing conversation context."
+
+    conversation_id = f"conv_{tenant_id}_{customer_phone}"
+    try:
+        conversation = await inbox_repo.raise_escalation(
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+            reason=reason,
+            summary=summary[:300],
+        )
+        await broadcast_conversation_updated(tenant_id, conversation)
+        return "Escalated to the restaurant. Tell the customer you've passed this to the restaurant."
+    except Exception as e:
+        logger.error(f"Error escalating conversation {conversation_id}: {e}")
+        return "Could not escalate right now. Apologise and ask the customer to wait."

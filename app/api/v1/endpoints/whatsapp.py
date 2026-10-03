@@ -23,6 +23,7 @@ from core.whatsapp_utils import (
 from services.pdf_ingestion import process_and_store_pdf_bytes
 from agents.customer_support.agent import run_customer_support_turn
 from services.message_service import message_service
+from services.conversation_state import conversation_blocks_agent, is_escalated
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,21 @@ async def handle_text_turn(
             wamid=request_id,  # using request_id as fallback, actual wamid would come from webhook
             customer_name=customer_name,
         )
+
+        # The inbound message is already saved. Don't let the agent answer if
+        # the owner has taken the chat, it's waiting on the owner after an
+        # escalation, or the restaurant has paused the agent globally.
+        conversation = await database["conversations"].find_one(
+            {"tenant_id": tenant_id, "customer_phone": sender_phone}
+        )
+        if conversation_blocks_agent(conversation, tenant):
+            logger.info(
+                f"[{request_id}] Agent skipped for [{sender_phone}] — "
+                f"handled_by={(conversation or {}).get('handled_by', 'agent')}, "
+                f"escalated={is_escalated(conversation or {})}, "
+                f"agent_enabled={tenant.get('agent_enabled', True)}"
+            )
+            return
 
         reply_text = await run_customer_support_turn(
             db=database,
