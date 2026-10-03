@@ -43,7 +43,6 @@ interface AuthContextValue {
     refetch: () => void
     logout: () => void
     switchTenant: (tenantId: string) => Promise<void>
-    completeOnboarding: (tenantId: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -188,13 +187,6 @@ export default function AuthProvider({
         queryClient.invalidateQueries()
     }
 
-    const completeOnboarding = async (tenantId: string) => {
-        await API.post("/auth/complete-onboarding", { tenant_id: tenantId })
-        await refetch()
-        queryClient.invalidateQueries()
-        router.replace("/dashboard")
-    }
-
     const value = useMemo<AuthContextValue>(
         () => ({
             user: user ?? null,
@@ -208,7 +200,6 @@ export default function AuthProvider({
             refetch,
             logout,
             switchTenant,
-            completeOnboarding,
         }),
         [
             user,
