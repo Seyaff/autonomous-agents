@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
 import { LiveOnly } from "@/components/dashboard/live-only"
+import { Badge } from "@/components/ui/badge"
+import { MetaEmbeddedSignup } from "@/components/MetaEmbeddedSignup"
+import { useQueryClient } from "@tanstack/react-query"
 import { useTenantSettings } from "@/hooks/tenant/use-tenant-settings"
 import { useUsage } from "@/hooks/billing/use-usage"
 import { USE_MOCKS } from "@/lib/mocks"
@@ -152,6 +155,28 @@ function Settings() {
           <section className="rounded-lg border border-border bg-card p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
+                <h2 className="text-sm font-medium">WhatsApp</h2>
+                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                  {t.whatsapp_status === "connected" || t.whatsapp_connected
+                    ? `Connected${t.display_phone_number ? ` · ${t.display_phone_number}` : ""}${t.verified_name ? ` · ${t.verified_name}` : ""}`
+                    : "Not connected. Customers can't reach the agent yet."}
+                </p>
+              </div>
+              <Badge variant={t.whatsapp_status === "error" ? "destructive" : "outline"}>
+                {t.whatsapp_status === "error" ? "Needs attention" : t.whatsapp_connected ? "Live" : "Not connected"}
+              </Badge>
+            </div>
+            {t.whatsapp_status === "error" && t.whatsapp_last_error && (
+              <p className="mt-3 rounded-md bg-destructive/10 p-2 text-xs text-destructive">{t.whatsapp_last_error}</p>
+            )}
+            <div className="mt-3">
+              <WhatsAppConnect />
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-border bg-card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
                 <h2 className="text-sm font-medium">Customer agent</h2>
                 <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                   {t.agent_enabled
@@ -194,5 +219,20 @@ function Field({ id, label, children }: { id: string; label: string; children: R
       <Label htmlFor={id}>{label}</Label>
       {children}
     </div>
+  )
+}
+
+
+function WhatsAppConnect() {
+  const queryClient = useQueryClient()
+  return (
+    <MetaEmbeddedSignup
+      next="/dashboard/settings"
+      onSuccess={() => {
+        toast("WhatsApp connected.")
+        queryClient.invalidateQueries({ queryKey: ["tenant", "settings"] })
+      }}
+      onError={(message) => toast.error(message)}
+    />
   )
 }

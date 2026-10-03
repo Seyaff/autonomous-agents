@@ -1,6 +1,7 @@
 "use client"
 
 import { AgentStateIndicator } from "@/components/dashboard/agent-state-indicator"
+import { AlertsBell } from "@/components/dashboard/alerts-bell"
 import { PlanUsageMeter } from "@/components/dashboard/plan-usage-meter"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { useUnreadTotal } from "@/hooks/inbox/use-unread-total"
@@ -19,6 +20,7 @@ export function DashboardTopbar() {
         )}
       </div>
       <div className="flex items-center gap-4">
+        <AlertsBell />
         <AgentStateIndicator />
         <PlanUsageMeter />
       </div>

@@ -8,6 +8,7 @@ dependencies = [
     "apify-client>=2.5.1",
     "authlib>=1.8.0",
     "bcrypt>=5.0.0",
+    "cryptography>=50.0.1",
     "deepagents>=0.7.15",
     "fastapi[standard]>=0.141.1",
     "google-api-python-client>=2.201.0",

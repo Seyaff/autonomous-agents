@@ -53,6 +53,9 @@ export interface TenantSettings {
   currency: string
   timezone: string
   whatsapp_connected: boolean
+  whatsapp_status?: "connected" | "disconnected" | "error"
+  whatsapp_last_error?: string | null
+  verified_name?: string | null
   display_phone_number?: string | null
   agent_enabled: boolean
   delivery_settings: {

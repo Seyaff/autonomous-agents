@@ -80,6 +80,8 @@ async def ensure_webhook_indexes():
     await ensure_fact_indexes(db)
     from services.billing import ensure_billing_indexes
     await ensure_billing_indexes(db)
+    from services.alerts import ensure_alert_indexes
+    await ensure_alert_indexes(db)
     print("[memory] customer_facts indexes ensured.")
 
 

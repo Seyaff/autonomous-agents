@@ -30,6 +30,8 @@ from core.setup_state import (
     validate_action,
 )
 from services.menu_extraction import extract_menu_items, replace_menu_items
+from core.secrets import protect
+from core.whatsapp_utils import subscribe_business_account, verify_phone_number
 from middlewares.auth_middleware import require_owner, require_owner_role
 from schemas.models import CreateTenantRequest
 
@@ -93,6 +95,9 @@ class TenantPublic(BaseModel):
     whatsapp_business_id: Optional[str] = None
     phone_number_id: Optional[str] = None
     whatsapp_connected: bool = False
+    whatsapp_status: str = "disconnected"
+    whatsapp_last_error: Optional[str] = None
+    verified_name: Optional[str] = None
     agent_enabled: bool = True
     display_phone_number: Optional[str] = None
     country: Optional[str] = None
@@ -157,7 +162,7 @@ async def create_tenant(
         "order_types": payload.order_types,
         "whatsapp_business_id": payload_data.get("whatsapp_business_id"),
         "phone_number_id": payload_data.get("phone_number_id"),
-        "whatsapp_access_token": payload_data.get("whatsapp_access_token"),
+        "whatsapp_access_token": protect(payload_data.get("whatsapp_access_token")),
         "operating_hours": [],
         "min_order_amount": 0.0,
         "delivery_areas": [],
@@ -404,54 +409,104 @@ async def connect_meta_whatsapp(
     current_user: dict = Depends(require_owner),
 ):
     """
-    Exchanges Meta Embedded Signup authorization code for a long-lived access token,
-    registers the phone number ID, and connects the WhatsApp Business Account (WABA) to the tenant.
+    Connects this restaurant's own WhatsApp number.
+
+    Every step must succeed: exchange the signup code for a token, check the token
+    can read the number, check the number isn't used by another restaurant, and
+    subscribe the business account to our webhook. If any step fails, nothing falls
+    back to shared credentials. The restaurant is marked as errored with the reason,
+    so the owner sees it.
     """
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=400, detail="Create a restaurant profile first.")
 
-    app_id = settings.META_APP_ID
-    app_secret = settings.META_APP_SECRET
+    if not (settings.META_APP_ID and settings.META_APP_SECRET):
+        raise HTTPException(
+            status_code=503,
+            detail="WhatsApp connection isn't set up on the server yet. Use the shared test number for now.",
+        )
+    if not payload.phone_number_id or not payload.waba_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Meta didn't return the phone number or business account. Try connecting again.",
+        )
 
-    access_token = None
-    if app_id and app_secret and payload.code:
-        token_exchange_url = "https://graph.facebook.com/v19.0/oauth/access_token"
-        params = {
-            "client_id": app_id,
-            "client_secret": app_secret,
-            "code": payload.code,
-        }
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                resp = await client.get(token_exchange_url, params=params)
-                if resp.status_code == 200:
-                    access_token = resp.json().get("access_token")
-                else:
-                    logger.warning(f"Meta token exchange failed: {resp.text}")
-            except Exception as e:
-                logger.error(f"Error during Meta token exchange: {e}")
+    async def fail(message: str, status_code: int = 400):
+        await db.tenants.update_one(
+            {"tenant_id": tenant_id},
+            {"$set": {
+                "whatsapp_status": "error",
+                "whatsapp_last_error": message,
+                "whatsapp_checked_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        raise HTTPException(status_code=status_code, detail=message)
 
-    final_token = access_token or settings.WHATSAPP_TOKEN
-    waba_id = payload.waba_id or settings.WHATSAPP_BUSINESS_ACCOUNT_ID
-    phone_id = payload.phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+    token = await _exchange_signup_code(payload.code)
+    if not token:
+        await fail("Meta didn't accept the signup. Try connecting again.")
 
-    update_doc = {
-        "whatsapp_business_id": waba_id,
-        "phone_number_id": phone_id,
-        "whatsapp_access_token": final_token,
-        "whatsapp_connected": True,
-        "updated_at": datetime.now(timezone.utc),
-    }
+    other = await db.tenants.find_one(
+        {"phone_number_id": payload.phone_number_id, "tenant_id": {"$ne": tenant_id}},
+        {"tenant_id": 1},
+    )
+    if other:
+        await fail("This number is already connected to another restaurant.", status_code=409)
 
-    await db.tenants.update_one({"tenant_id": tenant_id}, {"$set": update_doc})
+    try:
+        details = await verify_phone_number(token, payload.phone_number_id)
+        await subscribe_business_account(token, payload.waba_id)
+    except ValueError as e:
+        await fail(str(e))
+
+    now = datetime.now(timezone.utc)
+    await db.tenants.update_one(
+        {"tenant_id": tenant_id},
+        {"$set": {
+            "whatsapp_business_id": payload.waba_id,
+            "phone_number_id": payload.phone_number_id,
+            "whatsapp_access_token": protect(token),
+            "whatsapp_connected": True,
+            "whatsapp_status": "connected",
+            "whatsapp_last_error": None,
+            "whatsapp_checked_at": now,
+            "display_phone_number": details.get("display_phone_number"),
+            "verified_name": details.get("verified_name"),
+            "updated_at": now,
+        }},
+    )
 
     return {
         "status": "success",
-        "message": "WhatsApp Business Account linked successfully!",
-        "phone_number_id": phone_id,
-        "waba_id": waba_id,
+        "message": "WhatsApp connected.",
+        "phone_number_id": payload.phone_number_id,
+        "waba_id": payload.waba_id,
+        "display_phone_number": details.get("display_phone_number"),
+        "verified_name": details.get("verified_name"),
     }
+
+
+async def _exchange_signup_code(code: str) -> Optional[str]:
+    """Exchanges the Embedded Signup code for an access token. None if Meta refuses it."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            resp = await client.get(
+                "https://graph.facebook.com/v19.0/oauth/access_token",
+                params={
+                    "client_id": settings.META_APP_ID,
+                    "client_secret": settings.META_APP_SECRET,
+                    "code": code,
+                },
+            )
+        except httpx.RequestError as e:
+            logger.error(f"Meta token exchange could not be reached: {e}")
+            return None
+    if resp.status_code != 200:
+        logger.warning(f"Meta token exchange failed: {resp.text}")
+        return None
+    return resp.json().get("access_token")
 
 
 # ---------------------------------------------------------------------------

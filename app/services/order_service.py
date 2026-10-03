@@ -125,12 +125,25 @@ async def notify_customer_status(
 
     token, phone_number_id = resolve_tenant_whatsapp_credentials(tenant)
     text = notice.format(order_id=order.get("order_id", ""))
-    sent = await send_whatsapp_message(
+    result = await send_text(
         to_phone=phone,
         text=text,
         token=token,
         phone_number_id=phone_number_id,
     )
+    sent = result.ok
+    if not sent:
+        from services.alerts import raise_alert
+
+        await raise_alert(
+            db,
+            tenant_id,
+            kind="status_update_not_sent",
+            title=f"Order {order.get('order_id', '')} update wasn't sent",
+            detail=f"The customer wasn't told it is now {new_status}. {result.error_message or ''}".strip(),
+            severity="critical" if result.auth_error else "warning",
+            ref={"order_id": order.get("order_id")},
+        )
     if sent:
         from services.message_service import message_service
 

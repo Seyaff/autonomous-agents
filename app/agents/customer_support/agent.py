@@ -17,6 +17,7 @@ from langgraph.graph.state import CompiledStateGraph
 from core.llm import get_chat_model
 from memory.context_builder import build_agent_context, remember_exchange
 from services.billing import record_agent_reply, tokens_from_messages
+from services.alerts import raise_alert
 from agents.customer_support.prompt import compile_customer_support_prompt
 from agents.customer_support.tools import (
     search_uploaded_documents,
@@ -193,6 +194,16 @@ async def run_agent_turn(
             result = await get_customer_support_agent().ainvoke({"messages": messages}, config=config)
         except Exception as e:
             logger.exception(f"Agent invocation failed for {tenant_id}:{customer_phone}: {e}")
+            if not test_mode:
+                await raise_alert(
+                    db,
+                    tenant_id,
+                    kind="agent_error",
+                    title=f"The agent failed on a message from {customer_phone}",
+                    detail=f"The customer got an apology. Check the conversation. ({type(e).__name__})",
+                    severity="warning",
+                    ref={"customer_phone": customer_phone},
+                )
             return {"reply": ERROR_REPLY, "trace": [], "escalated": False}
 
         all_messages = result.get("messages", [])
