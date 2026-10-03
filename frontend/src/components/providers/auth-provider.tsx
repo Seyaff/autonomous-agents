@@ -11,6 +11,8 @@ import { useQueryClient } from "@tanstack/react-query"
 
 import API from "@/lib/axios-client"
 import { useGetCurrentUser } from "@/hooks/auth/get-me"
+import { useSetupState } from "@/hooks/setup/use-setup-state"
+import { isSetupStep, routeIndex } from "@/lib/setup"
 
 
 export type UserRole = "FOUNDER" | "OWNER"
@@ -41,14 +43,26 @@ interface AuthContextValue {
     refetch: () => void
     logout: () => void
     switchTenant: (tenantId: string) => Promise<void>
-    completeOnboarding: (tenantId: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-const ONBOARDING_PATHS = ["/onboarding", "/settings"]
 const PUBLIC_PATHS = ["/login", "/signup", "/privacy"]
 const FOUNDER_PREFIX = "/founder"
+const SETUP_PREFIX = "/setup"
+
+// Before the restaurant exists, the owner can only be on these two steps.
+const BEFORE_RESTAURANT_PATHS = ["/setup/welcome", "/setup/restaurant"]
+// Once setup is finished, these skipped optional steps stay reachable.
+const DISMISSIBLE_AFTER_SETUP = ["/setup/menu", "/setup/whatsapp"]
+
+function isSetupPath(pathname: string) {
+    return pathname === SETUP_PREFIX || pathname.startsWith(`${SETUP_PREFIX}/`)
+}
+
+function stepOf(pathname: string) {
+    return pathname.split("/")[2] ?? ""
+}
 
 export default function AuthProvider({
     children,
@@ -72,11 +86,16 @@ export default function AuthProvider({
     const activeTenantId = user?.active_tenant_id ?? null
     const tenants = user?.tenants ?? []
 
-    // Handle redirects based on auth/role/onboarding state
+    // Setup progress comes from the server. Owners without a restaurant have
+    // nothing to read yet, so the query stays off for them.
+    const setup = useSetupState({
+        enabled: isAuthenticated && !isFounder && !!activeTenantId,
+    })
+
+    // Handle redirects based on auth/role/setup state
     useEffect(() => {
         if (isLoading) return
 
-        const isOnboardingPath = ONBOARDING_PATHS.some(p => pathname.startsWith(p))
         const isPublicPath = PUBLIC_PATHS.some(p => pathname === p)
         const isFounderPath = pathname.startsWith(FOUNDER_PREFIX)
 
@@ -86,27 +105,46 @@ export default function AuthProvider({
             return
         }
 
-        // FOUNDER has its own surface — never onboards, never uses the
-        // owner dashboard. Anything outside /founder bounces back there.
+        // FOUNDER has its own surface. Anything outside /founder bounces back there.
         if (isFounder) {
             if (!isFounderPath) router.replace("/founder")
             return
         }
 
-        // OWNER below — not onboarded -> onboarding (unless already there)
-        if (!isOnboarded && !isOnboardingPath) {
-            router.replace("/onboarding")
+        // Owner, no restaurant yet: only the first two steps are reachable.
+        if (!activeTenantId) {
+            if (!BEFORE_RESTAURANT_PATHS.includes(pathname)) router.replace("/setup/welcome")
             return
         }
 
-        // Onboarded but on onboarding path -> dashboard
-        if (isOnboarded && isOnboardingPath) {
-            router.replace("/dashboard")
+        // Owner with a restaurant: wait for the setup state before deciding.
+        if (setup.isLoading || setup.isError) return
+
+        if (!setup.isComplete) {
+            // Setup in progress: stay on the current step, or go back to any earlier one.
+            if (!isSetupPath(pathname)) {
+                router.replace(`${SETUP_PREFIX}/${setup.currentStep}`)
+                return
+            }
+            const step = stepOf(pathname)
+            if (step && routeIndex(step) > routeIndex(setup.currentStep)) {
+                router.replace(`${SETUP_PREFIX}/${setup.currentStep}`)
+            }
             return
         }
 
-        // Onboarded but on a public path, or the bare root -> dashboard
-        if (isOnboarded && (isPublicPath || pathname === "/")) {
+        // Setup finished: setup pages are closed, except skipped optional steps.
+        if (isSetupPath(pathname)) {
+            const step = stepOf(pathname)
+            const skippedStillReachable =
+                DISMISSIBLE_AFTER_SETUP.includes(pathname) &&
+                isSetupStep(step) &&
+                setup.skippedSteps.includes(step)
+            if (!skippedStillReachable) router.replace("/dashboard")
+            return
+        }
+
+        if (isPublicPath || pathname === "/") {
             router.replace("/dashboard")
             return
         }
@@ -114,9 +152,20 @@ export default function AuthProvider({
         // Owners never see the founder console
         if (isFounderPath) {
             router.replace("/dashboard")
-            return
         }
-    }, [isAuthenticated, isFounder, isOnboarded, isLoading, pathname, router])
+    }, [
+        isAuthenticated,
+        isFounder,
+        isLoading,
+        pathname,
+        router,
+        activeTenantId,
+        setup.isLoading,
+        setup.isError,
+        setup.isComplete,
+        setup.currentStep,
+        setup.skippedSteps,
+    ])
 
     // ---------- Actions ----------
 
@@ -138,13 +187,6 @@ export default function AuthProvider({
         queryClient.invalidateQueries()
     }
 
-    const completeOnboarding = async (tenantId: string) => {
-        await API.post("/auth/complete-onboarding", { tenant_id: tenantId })
-        await refetch()
-        queryClient.invalidateQueries()
-        router.replace("/dashboard")
-    }
-
     const value = useMemo<AuthContextValue>(
         () => ({
             user: user ?? null,
@@ -158,7 +200,6 @@ export default function AuthProvider({
             refetch,
             logout,
             switchTenant,
-            completeOnboarding,
         }),
         [
             user,

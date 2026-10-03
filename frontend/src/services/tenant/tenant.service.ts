@@ -43,3 +43,48 @@ export function toTenantSummary(tenant: Tenant): TenantSummary {
     display_phone_number: tenant.display_phone_number,
   }
 }
+
+/** Full restaurant record for the settings page (the chrome only needs TenantSummary). */
+export interface TenantSettings {
+  tenant_id: string
+  business_name: string
+  business_phone?: string | null
+  address?: string | null
+  currency: string
+  timezone: string
+  whatsapp_connected: boolean
+  whatsapp_status?: "connected" | "disconnected" | "error"
+  whatsapp_last_error?: string | null
+  verified_name?: string | null
+  display_phone_number?: string | null
+  agent_enabled: boolean
+  delivery_settings: {
+    flat_delivery_fee?: number
+    avg_prep_time_minutes?: number
+  }
+}
+
+export const getTenantSettings = async (): Promise<TenantSettings> => {
+  const res = await API.get("/tenant/current")
+  return res.data
+}
+
+export interface TenantSettingsUpdate {
+  business_name?: string
+  business_phone?: string
+  address?: string
+  currency?: string
+  timezone?: string
+  flat_delivery_fee?: number
+  avg_prep_time_minutes?: number
+}
+
+export const updateTenantSettings = async (payload: TenantSettingsUpdate) => {
+  const res = await API.patch("/tenant/current", payload)
+  return res.data
+}
+
+export const setAgentEnabled = async (enabled: boolean) => {
+  const res = await API.patch("/tenant/current/agent", { enabled })
+  return res.data as { agent_enabled: boolean }
+}

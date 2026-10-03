@@ -249,29 +249,6 @@ async def switch_tenant(payload: dict, database=Depends(get_database), current_u
     return {"status": "success", "active_tenant_id": tenant_id}
 
 
-@auth_routes.post("/complete-onboarding")
-async def complete_onboarding(payload: dict, database=Depends(get_database), current_user: dict = Depends(get_current_user)):
-    """Mark user as onboarded after completing restaurant setup."""
-    tenant_id = payload.get("tenant_id")
-    if not tenant_id:
-        raise HTTPException(status_code=400, detail="tenant_id required")
-    
-    # Verify user has access to this tenant
-    if tenant_id not in current_user.get("tenants", []):
-        raise HTTPException(status_code=403, detail="No access to this tenant")
-    
-    await database["users"].update_one(
-        {"user_id": current_user["user_id"]},
-        {"$set": {
-            "is_onboarded": True,
-            "active_tenant_id": tenant_id,
-            "updated_at": datetime.now(timezone.utc)
-        }}
-    )
-    
-    return {"status": "success", "message": "Onboarding completed"}
-
-
 # ------------------ GOOGLE OAUTH FLOW ------------------
 
 @auth_routes.get("/google")
@@ -281,7 +258,7 @@ async def login_with_google(request: Request):
     redirect_uri = getattr(settings, "GOOGLE_CALLBACK_URL", "http://localhost:8000/api/v1/auth/google/callback")
     
     # Get next parameter from query string
-    next_param = request.query_params.get("next", "/onboarding")
+    next_param = request.query_params.get("next", "/setup")
     logger.info(f"[google] Initiating OAuth with redirect_uri: {redirect_uri}, next: {next_param}")
     
     # Pass next parameter via state to preserve it through OAuth flow
@@ -339,7 +316,7 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
     is_onboarded = user.get("is_onboarded", False)
     
     # Get next parameter from state (passed through OAuth flow)
-    next_param = request.query_params.get("state") or request.query_params.get("next", "/onboarding" if not is_onboarded else "/dashboard")
+    next_param = request.query_params.get("state") or request.query_params.get("next", "/setup" if not is_onboarded else "/dashboard")
     
     access_token = generate_access_token(user_id)
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")

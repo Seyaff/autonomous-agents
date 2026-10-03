@@ -17,7 +17,7 @@ export function MetaEmbeddedSignup({
   onSuccess,
   onError,
   disabled = false,
-  next = "/onboarding",
+  next = "/setup",
 }: MetaEmbeddedSignupProps) {
   const [loading, setLoading] = useState(false)
   const [sdkLoaded, setSdkLoaded] = useState(false)
@@ -25,6 +25,18 @@ export function MetaEmbeddedSignup({
 
   const phoneNumberIdRef = useRef<string | null>(null)
   const wabaIdRef = useRef<string | null>(null)
+
+  // If the SDK never arrives (blocked script, ad blocker, no network), say so
+  // instead of showing "Loading Meta SDK..." forever.
+  useEffect(() => {
+    if (sdkLoaded || sdkError) return
+    const timer = window.setTimeout(() => {
+      if (!window.FB) {
+        setSdkError("Meta's sign-in didn't load. Check your connection or disable any ad blocker, then reload. You can also do this later.")
+      }
+    }, 8000)
+    return () => window.clearTimeout(timer)
+  }, [sdkLoaded, sdkError])
 
   // Load the Meta SDK once per session
   useEffect(() => {

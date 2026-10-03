@@ -78,6 +78,12 @@ async def ensure_webhook_indexes():
     print("[webhook] processed_messages indexes ensured.")
     from memory.facts import ensure_fact_indexes
     await ensure_fact_indexes(db)
+    from services.billing import ensure_billing_indexes
+    await ensure_billing_indexes(db)
+    from services.alerts import ensure_alert_indexes
+    await ensure_alert_indexes(db)
+    from services.menu_jobs import ensure_menu_job_indexes
+    await ensure_menu_job_indexes(db)
     print("[memory] customer_facts indexes ensured.")
 
 

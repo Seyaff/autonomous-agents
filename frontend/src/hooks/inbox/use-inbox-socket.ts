@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 
 function getWsBaseUrl(): string {
   // The websocket connects directly to the backend origin rather than
@@ -22,6 +23,7 @@ type WSEventType =
   | "order.updated"
   | "order.cancelled"
   | "conversation.updated"
+  | "alert.new"
   | "report.weekly_generated"
 
 interface WSEvent {
@@ -84,6 +86,18 @@ export function useInboxSocket(enabled: boolean) {
               queryClient.invalidateQueries({
                 queryKey: ["inbox", "conversation", updated.conversation_id],
               })
+            }
+            break
+          }
+          case "alert.new": {
+            const alert = parsed.payload?.alert as
+              | { title?: string; detail?: string; severity?: string }
+              | undefined
+            queryClient.invalidateQueries({ queryKey: ["alerts"] })
+            if (alert?.title) {
+              const text = alert.detail ? `${alert.title}. ${alert.detail}` : alert.title
+              if (alert.severity === "critical") toast.error(text)
+              else toast.warning(text)
             }
             break
           }

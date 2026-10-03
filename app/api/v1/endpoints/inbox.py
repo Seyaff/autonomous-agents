@@ -3,7 +3,8 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from core.database import get_database
-from core.whatsapp_utils import resolve_tenant_whatsapp_credentials, send_whatsapp_message
+from core.whatsapp_utils import resolve_tenant_whatsapp_credentials, send_text
+from services.alerts import raise_alert
 from middlewares.auth_middleware import require_owner
 from repositories.inbox_repo import inbox_repo
 from services.message_service import message_service
@@ -174,18 +175,29 @@ async def send_message(
         sender="human",
     )
 
-    sent = await send_whatsapp_message(
+    result = await send_text(
         to_phone=conversation["customer_phone"],
         text=payload.content,
         token=token,
         phone_number_id=phone_number_id,
     )
+    sent = result.ok
 
     if message:
         await message_service.update_outbound_status(
             message_id=message.message_id,
             wamid="pending",
             status="sent" if sent else "failed",
+        )
+    if not sent:
+        await raise_alert(
+            db,
+            tenant_id,
+            kind="owner_message_not_sent",
+            title="Your reply wasn't delivered",
+            detail=f"{conversation['customer_phone']}: {result.error_message or 'WhatsApp did not accept it.'}",
+            severity="critical" if result.auth_error else "warning",
+            ref={"conversation_id": conversation_id},
         )
 
     return {"status": "success" if sent else "failed", "message": message}

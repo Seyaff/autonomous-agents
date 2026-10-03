@@ -8,10 +8,14 @@ import {
 } from "@/services/tenant/tenant.service"
 import { MOCK_ACTIVE_TENANT_ID, MOCK_TENANTS } from "@/lib/mock/tenant"
 import { USE_MOCKS } from "@/lib/mocks"
+import { useAuth } from "@/components/providers/auth-provider"
 
 export const useCurrentTenant = () => {
+  // No restaurant until setup creates one, so there's nothing to fetch yet.
+  const { activeTenantId } = useAuth()
   return useQuery<TenantSummary>({
     queryKey: ["tenant", "current", USE_MOCKS],
+    enabled: USE_MOCKS || !!activeTenantId,
     queryFn: async () => {
       if (USE_MOCKS) {
         const tenant = MOCK_TENANTS.find((t) => t.tenant_id === MOCK_ACTIVE_TENANT_ID)

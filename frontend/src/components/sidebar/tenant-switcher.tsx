@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/sidebar"
 import { useAuth } from "@/components/providers/auth-provider"
 import { useCurrentTenant } from "@/hooks/tenant/use-current-tenant"
+import { Skeleton } from "@/components/ui/skeleton"
 import { MOCK_ACTIVE_TENANT_ID, MOCK_TENANTS } from "@/lib/mock/tenant"
 import { USE_MOCKS } from "@/lib/mocks"
 import type { TenantSummary } from "@/services/tenant/tenant.service"
@@ -86,8 +87,11 @@ export function TenantSwitcher() {
             </div>
             <div className="grid flex-1 text-left leading-tight">
               <span className="truncate text-sm font-semibold">
-                {current.business_name}
-                {current.branch_name ? ` · ${current.branch_name}` : ""}
+                {current ? (
+                  `${current.business_name}${current.branch_name ? ` · ${current.branch_name}` : ""}`
+                ) : (
+                  <Skeleton className="h-4 w-32" />
+                )}
               </span>
               <span className="truncate text-xs text-muted-foreground">
                 {options.length > 1 ? `${options.length} branches` : "Siyaf Autopilot"}

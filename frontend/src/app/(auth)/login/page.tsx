@@ -6,7 +6,7 @@ import { Suspense } from "react"
 
 function LoginPageContent() {
   const searchParams = useSearchParams()
-  const next = searchParams?.get("next") || "/onboarding"
+  const next = searchParams?.get("next") || "/setup"
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-background p-6 md:p-10">

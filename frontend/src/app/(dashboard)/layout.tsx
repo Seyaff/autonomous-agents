@@ -15,10 +15,10 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { isAuthenticated, isFounder } = useAuth()
+  const { isAuthenticated, isFounder, activeTenantId } = useAuth()
   // Mock mode simulates live updates locally (lunch-rush replay, Step 3) —
-  // no real websocket in that mode.
-  useInboxSocket(!USE_MOCKS && isAuthenticated && !isFounder)
+  // no real websocket in that mode. No socket until the owner has a restaurant.
+  useInboxSocket(!USE_MOCKS && isAuthenticated && !isFounder && !!activeTenantId)
 
   return (
     <SidebarProvider>

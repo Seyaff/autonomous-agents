@@ -122,6 +122,7 @@ async def ingest_pdf_bytes_for_tenant(
         "status": "success",
         "doc_id": doc_id,
         "title": filename,
+        "full_text": "\n\n".join(d.page_content for d in raw_documents),
         "chunks_indexed": len(chunks),
         "message": f"Successfully indexed '{filename}' ({len(chunks)} chunks) into Pinecone namespace '{tenant_id}'."
     }
@@ -214,3 +215,14 @@ async def search_tenant_knowledge(query: str, tenant_id: str, top_k: int = 4) ->
     except Exception as e:
         logger.error(f"Error querying Pinecone for tenant [{tenant_id}]: {e}")
         return f"Error retrieving knowledge base details: {str(e)}"
+
+
+async def delete_knowledge_vectors(tenant_id: str, vector_ids: List[str]) -> None:
+    """Removes a document's vectors from the tenant's namespace. Raises on failure,
+    so the caller keeps the document record and the owner can retry."""
+    import asyncio
+
+    if not vector_ids:
+        return
+    index = pc.Index(INDEX_NAME)
+    await asyncio.to_thread(index.delete, ids=vector_ids, namespace=tenant_id)

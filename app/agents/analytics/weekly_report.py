@@ -1,3 +1,4 @@
+from core.secrets import reveal
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
@@ -168,7 +169,7 @@ Format cleanly for WhatsApp reading with bold headers and bullet points.
 
     # Proactive Autopilot Dispatch to Owner's WhatsApp
     if owner_phone:
-        token = tenant.get("whatsapp_access_token") or settings.WHATSAPP_TOKEN
+        token = reveal(tenant.get("whatsapp_access_token")) or settings.WHATSAPP_TOKEN
         phone_id = tenant.get("phone_number_id") or settings.WHATSAPP_PHONE_NUMBER_ID
         whatsapp_message = (
             f"📊 *7-DAY AUTOPILOT BUSINESS REPORT: {business_name.upper()}*\n\n"
