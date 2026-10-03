@@ -1,19 +1,16 @@
-from .mongo_checkpointer import MongoDBCkptSaver
-from .customer_memory import get_customer_profile, update_customer_profile, format_customer_context
-from .context_builder import build_agent_context, trigger_summarization_if_needed
-from .summarizer import ConversationSummarizer, summarizer
-from .models import ConversationSummary, AgentContext, SummarizationTrigger
+"""Customer memory: derived order stats, durable facts, and the per-turn context window."""
+
+from .customer_card import build_customer_card, render_card
+from .facts import FactChange, apply_fact_changes, ensure_fact_indexes, list_active_facts
+from .context_builder import build_agent_context, remember_exchange
 
 __all__ = [
-    "MongoDBCkptSaver",
-    "get_customer_profile",
-    "update_customer_profile",
-    "format_customer_context",
+    "build_customer_card",
+    "render_card",
+    "FactChange",
+    "apply_fact_changes",
+    "ensure_fact_indexes",
+    "list_active_facts",
     "build_agent_context",
-    "trigger_summarization_if_needed",
-    "ConversationSummarizer",
-    "summarizer",
-    "ConversationSummary",
-    "AgentContext",
-    "SummarizationTrigger",
+    "remember_exchange",
 ]
