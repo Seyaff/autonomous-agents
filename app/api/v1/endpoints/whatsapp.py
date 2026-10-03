@@ -24,6 +24,7 @@ from core.whatsapp_utils import (
 )
 from services.pdf_ingestion import process_and_store_pdf_bytes
 from agents.customer_support.agent import run_customer_support_turn
+from services.billing import agent_allowed
 from services.message_service import message_service
 from services.conversation_state import conversation_blocks_agent, is_escalated
 
@@ -192,6 +193,13 @@ async def handle_text_turn(
                 f"escalated={is_escalated(conversation or {})}, "
                 f"agent_enabled={tenant.get('agent_enabled', True)}"
             )
+            return
+
+        # Billing: a paused or canceled restaurant, or a trial that has ended or hit its cap,
+        # doesn't get agent replies. The message is still saved to the inbox.
+        allowed, reason = await agent_allowed(database, tenant)
+        if not allowed:
+            logger.info(f"[{request_id}] Agent skipped for [{sender_phone}] — {reason}")
             return
 
         reply_text = await run_customer_support_turn(

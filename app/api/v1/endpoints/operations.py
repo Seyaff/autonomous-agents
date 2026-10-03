@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query
 
 from core.database import get_database
 from middlewares.auth_middleware import require_founder
-from services.billing import PLANS, DEFAULT_PLAN, current_period
+from services.billing import plan_for, current_period
 from services.setup_status import setup_is_complete
 
 ops_router = APIRouter(prefix="/ops", tags=["Operations"])
@@ -57,7 +57,7 @@ async def restaurants(
         orders_today = await db["orders"].count_documents({"tenant_id": tid, "created_at": {"$gte": today}})
         messages_today = await db["messages"].count_documents({"tenant_id": tid, "created_at": {"$gte": today}})
         usage = await db["usage_counters"].find_one({"tenant_id": tid, "period": period}) or {}
-        plan = PLANS.get(t.get("plan") or DEFAULT_PLAN, PLANS[DEFAULT_PLAN])
+        plan = plan_for(t)
 
         # "shared_number": not on its own WhatsApp connection, so it sends and receives
         # through the shared .env number (the normal state in development). That is not a fault.
