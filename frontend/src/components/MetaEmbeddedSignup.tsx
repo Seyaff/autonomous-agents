@@ -17,7 +17,7 @@ export function MetaEmbeddedSignup({
   onSuccess,
   onError,
   disabled = false,
-  next = "/onboarding",
+  next = "/setup",
 }: MetaEmbeddedSignupProps) {
   const [loading, setLoading] = useState(false)
   const [sdkLoaded, setSdkLoaded] = useState(false)

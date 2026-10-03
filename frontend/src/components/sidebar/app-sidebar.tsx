@@ -23,6 +23,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { useUnreadTotal } from "@/hooks/inbox/use-unread-total"
+import { useSetupReminders } from "@/hooks/setup/use-setup-reminders"
 
 const INBOX_PREFIX = "/dashboard/inbox"
 
@@ -30,9 +31,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { setOpen } = useSidebar()
   const pathname = usePathname()
   const unreadTotal = useUnreadTotal()
+  const { remaining: setupRemaining } = useSetupReminders()
 
   const navMain: NavMainItem[] = [
-    { title: "Live service", url: "/dashboard", icon: <HomeIcon /> },
+    {
+      title: "Live service",
+      url: "/dashboard",
+      icon: <HomeIcon />,
+      badge: setupRemaining.length > 0 ? String(setupRemaining.length) : undefined,
+    },
     {
       title: "Inbox",
       url: "/dashboard/inbox",

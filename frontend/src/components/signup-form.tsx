@@ -41,7 +41,7 @@ export function SignupForm({
         password,
       })
       if (res.data.status === "success") {
-        router.push("/onboarding")
+        router.push("/setup")
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Could not complete signup. Please try again.")
