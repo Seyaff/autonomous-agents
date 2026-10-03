@@ -10,7 +10,7 @@ export interface OperatedRestaurant {
   owner_name: string | null
   health: RestaurantHealth
   setup_complete: boolean
-  whatsapp_status: "connected" | "disconnected" | "error"
+  whatsapp_status: "connected" | "shared_number" | "error"
   whatsapp_error: string | null
   display_phone_number: string | null
   agent_enabled: boolean

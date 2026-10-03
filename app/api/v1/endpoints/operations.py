@@ -59,7 +59,14 @@ async def restaurants(
         usage = await db["usage_counters"].find_one({"tenant_id": tid, "period": period}) or {}
         plan = PLANS.get(t.get("plan") or DEFAULT_PLAN, PLANS[DEFAULT_PLAN])
 
-        whatsapp = t.get("whatsapp_status") or ("connected" if t.get("whatsapp_connected") else "disconnected")
+        # "shared_number": not on its own WhatsApp connection, so it sends and receives
+        # through the shared .env number (the normal state in development). That is not a fault.
+        if t.get("whatsapp_status") == "error":
+            whatsapp = "error"
+        elif t.get("whatsapp_connected") or t.get("whatsapp_status") == "connected":
+            whatsapp = "connected"
+        else:
+            whatsapp = "shared_number"
         setup_done = setup_is_complete(t)
         if not setup_done:
             health = "setting_up"
