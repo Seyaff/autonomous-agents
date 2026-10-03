@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input"
 import { GalleryVerticalEndIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
+import { getUserQuery } from "@/services/auth/auth.service"
 import { useGoogleLogin } from "@/hooks/auth/use-google"
 import API from "@/lib/axios-client"
 
@@ -28,6 +30,7 @@ export function LoginForm({
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,7 +40,9 @@ export function LoginForm({
     try {
       const res = await API.post("/auth/login", { email, password })
       if (res.data.status === "success") {
-        const isOnboarded = res.data.user?.is_onboarded
+        // Load the new session first, so the gate doesn't act on the old "signed out" state.
+        const me = await queryClient.fetchQuery({ queryKey: ["me"], queryFn: getUserQuery, staleTime: 0 })
+        const isOnboarded = me?.is_onboarded ?? res.data.user?.is_onboarded
         router.push(isOnboarded ? "/dashboard" : next)
       }
     } catch (err: any) {

@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     MEMORY_GROQ_MODEL: str = "openai/gpt-oss-20b"
     MEMORY_OPENAI_MODEL: str = "gpt-4.1-mini"
 
+    # Model for reading dishes out of a menu. Its own model, so menu reading doesn't
+    # use up the reply model's per-minute token limit.
+    MENU_GROQ_MODEL: str = "openai/gpt-oss-20b"
+    MENU_OPENAI_MODEL: str = "gpt-4.1-mini"
+
     WHATSAPP_VERIFY_TOKEN: str = Field(
         validation_alias=AliasChoices(
             "META_VERIFY_TOKEN", "WHATSAPP_VERIFY_TOKEN"

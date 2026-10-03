@@ -55,7 +55,11 @@ API.interceptors.response.use(
     }
 
     if (status === 401) {
-      if (currentPath !== "/login" && !isAuthEndpoint) {
+      // A 401 on the session check just means "not signed in yet". Only a
+      // signed-in user whose session ran out is sent back to login.
+      const publicPage = ["/login", "/signup", "/privacy"].includes(currentPath)
+      const sessionCheck = /\/(user|auth)\/me$/.test(error.config?.url ?? "")
+      if (!publicPage && !isAuthEndpoint && !sessionCheck) {
         toast.error("Session expired. Please log in again.")
         if (typeof window !== "undefined") {
           window.location.href = "/login"

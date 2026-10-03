@@ -30,6 +30,7 @@ from core.setup_state import (
     validate_action,
 )
 from services.menu_extraction import extract_menu_items, replace_menu_items
+from services.menu_jobs import MENU_JOBS, active_job, create_job, mark_stale_jobs, public, start_job
 from core.secrets import protect
 from core.whatsapp_utils import subscribe_business_account, verify_phone_number
 from middlewares.auth_middleware import require_owner, require_owner_role
@@ -512,57 +513,65 @@ async def _exchange_signup_code(code: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # PDF menu    ← moved OUT of the function above, into its own top-level route
 # ---------------------------------------------------------------------------
-@tenant_routes.post("/upload-menu-pdf")
+@tenant_routes.post("/upload-menu-pdf", status_code=202)
 async def upload_menu_pdf(
     file: UploadFile = File(...),
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
     """
-    Accepts a PDF menu upload from the onboarding/dashboard and indexes it into
-    the tenant's Pinecone namespace for RAG retrieval.
+    Accepts a PDF menu and starts reading it in the background. Returns a job at
+    once. Poll GET /tenant/menu-uploads/{job_id} for progress.
     """
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No active tenant. Complete profile setup first.",
-        )
+        raise HTTPException(status_code=400, detail="No active restaurant. Create the restaurant first.")
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+        raise HTTPException(status_code=400, detail="Only PDF menus are supported for now.")
 
     file_bytes = await file.read()
     if not file_bytes:
-        raise HTTPException(status_code=400, detail="Empty file upload.")
+        raise HTTPException(status_code=400, detail="That file is empty.")
+    if len(file_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="That file is over 20 MB. Try a smaller PDF.")
 
-    logger.info(
-        f"[upload-menu-pdf] user={current_user.get('user_id')} "
-        f"tenant={tenant_id} file={file.filename} bytes={len(file_bytes)}"
-    )
+    await mark_stale_jobs(db, tenant_id)
+    busy = await active_job(db, tenant_id)
+    if busy:
+        raise HTTPException(
+            status_code=409,
+            detail="A menu is already being read. Wait for it to finish, then upload the new one.",
+        )
 
-    result = await ingest_pdf_bytes_for_tenant(
-        file_bytes=file_bytes,
-        filename=file.filename,
-        tenant_id=tenant_id,
-    )
+    job_id = await create_job(db, tenant_id, file.filename)
+    start_job(job_id, tenant_id, file_bytes, file.filename)
+    logger.info(f"[upload-menu-pdf] tenant={tenant_id} job={job_id} file={file.filename} bytes={len(file_bytes)}")
+    return {"job_id": job_id, "status": "queued"}
 
-    if result.get("status") == "error":
-        raise HTTPException(status_code=400, detail=result["message"])
 
-    # The menu is searchable now. Reading out the dishes is a second step; if
-    # it fails the upload still counts, and the owner can retry the list.
-    full_text = result.pop("full_text", "")
-    try:
-        items = await extract_menu_items(full_text)
-        result["items_found"] = await replace_menu_items(db, tenant_id, result["doc_id"], items)
-    except Exception as e:
-        logger.error(f"[upload-menu-pdf] dish extraction failed tenant={tenant_id}: {e}")
-        result["items_found"] = 0
-        result["items_error"] = "The menu is saved for the agent, but we couldn't read the dishes. Try again."
+@tenant_routes.get("/menu-uploads/latest")
+async def latest_menu_upload(
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """The most recent menu upload, so a page reload picks up where it was."""
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active restaurant.")
+    await mark_stale_jobs(db, tenant_id)
+    doc = await db[MENU_JOBS].find_one({"tenant_id": tenant_id}, sort=[("created_at", -1)])
+    return {"job": public(doc)}
 
-    logger.info(
-        f"[upload-menu-pdf] tenant={tenant_id} "
-        f"chunks={result.get('chunks_indexed')} items={result.get('items_found')} doc_id={result.get('doc_id')}"
-    )
-    return result
+
+@tenant_routes.get("/menu-uploads/{job_id}")
+async def get_menu_upload(
+    job_id: str,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    tenant_id = current_user.get("active_tenant_id")
+    doc = await db[MENU_JOBS].find_one({"job_id": job_id, "tenant_id": tenant_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Upload not found.")
+    return {"job": public(doc)}
