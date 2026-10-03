@@ -108,4 +108,54 @@ async def pay_open_invoice(db, invoice: Dict[str, Any], method: str = "card") ->
 
     if paid.get("purpose") == "subscription":
         await activate_subscription(db, paid["tenant_id"], paid, now)
+    elif paid.get("purpose") == "renewal":
+        # The period was already moved on when this invoice was created.
+        await db["tenants"].update_one({"tenant_id": paid["tenant_id"]}, {"$set": {"subscription.status": "active", "updated_at": now}})
+    elif paid.get("purpose") == "upgrade":
+        await db["tenants"].update_one({"tenant_id": paid["tenant_id"]}, {"$set": {
+            "subscription.plan": paid["plan_key"],
+            "subscription.pending_plan": None,
+            "updated_at": now,
+        }})
     return paid, None
+
+
+def _utc(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def create_upgrade_invoice(db, tenant_id: str, subscription: Dict[str, Any], target_plan: str, now: datetime) -> Dict[str, Any]:
+    """Prorated charge for moving up a plan now: the price difference for the days left in the period."""
+    interval = subscription.get("interval", "month")
+    current_plan = subscription.get("plan", "basic")
+    start = _utc(subscription["current_period_start"])
+    end = _utc(subscription["current_period_end"])
+    total_days = max(1, (end - start).total_seconds())
+    remaining = min(1.0, max(0.0, (end - now).total_seconds() / total_days))
+    difference = plan_fee_pkr(target_plan, interval) - plan_fee_pkr(current_plan, interval)
+    amount = round(difference * remaining)
+    invoice = {
+        "invoice_id": await next_invoice_id(db, now),
+        "tenant_id": tenant_id,
+        "purpose": "upgrade",
+        "plan_key": target_plan,
+        "interval": interval,
+        "period_start": now,
+        "period_end": end,
+        "lines": [{
+            "description": f"Upgrade to {PLANS[target_plan]['name']} (prorated to {end.strftime('%d %b %Y')})",
+            "quantity": 1,
+            "amount_pkr": amount,
+        }],
+        "amount_pkr": amount,
+        "extra_chat_pkr": EXTRA_CHAT_PKR,
+        "status": "open",
+        "due_at": now,
+        "paid_at": None,
+        "provider": None,
+        "payment_reference": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db[INVOICES].insert_one(invoice)
+    return invoice

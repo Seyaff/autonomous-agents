@@ -12,7 +12,9 @@ from typing import Any, Dict, List, Optional
 
 from services.invoices import (
     create_subscription_invoice,
+    create_upgrade_invoice,
     pay_open_invoice,
+    plan_fee_pkr,
     INVOICES,
     PUBLIC_FIELDS,
 )
@@ -62,6 +64,11 @@ class SubscriptionResponse(BaseModel):
     current_period_start: Optional[datetime] = None
     current_period_end: Optional[datetime] = None
     cancel_at_period_end: bool
+    pending_plan: Optional[str] = None
+    pending_plan_name: Optional[str] = None
+    next_invoice_date: Optional[datetime] = None
+    next_invoice_pkr: int = 0
+    meta_fee_pkr: int = 0
     price_pkr: int
     included_chats: int
     extra_chat_pkr: int
@@ -93,7 +100,21 @@ async def get_subscription(
         days_left = max(0, math.ceil(seconds_left / 86400))
 
     usage = await usage_for_tenant(db, tenant)
+
+    # Next invoice: the plan fee for the next period, plus extra chats from this one.
+    next_plan = sub.get("pending_plan") or plan_key
+    extra = max(0, usage["used"] - plan["ai_conversations_per_month"]) * EXTRA_CHAT_PKR
+    on_trial = sub.get("status") == "trialing"
+    next_pkr = plan_fee_pkr(next_plan, interval) + (0 if on_trial else extra)
+    # WhatsApp fees are billed by Meta, not Siyaf. This estimate is for the owner to see.
+    meta_fee = round(max(0, usage["ai_messages"] - 1000) * 4.2)
+
     return SubscriptionResponse(
+        pending_plan=sub.get("pending_plan"),
+        pending_plan_name=PLANS[next_plan]["name"] if sub.get("pending_plan") else None,
+        next_invoice_date=None if on_trial else sub.get("current_period_end"),
+        next_invoice_pkr=next_pkr,
+        meta_fee_pkr=meta_fee,
         plan=plan_key,
         plan_name=plan["name"],
         interval=interval,
@@ -200,3 +221,71 @@ async def list_invoices(
     tenant_id = _tenant_id(current_user)
     cursor = db[INVOICES].find({"tenant_id": tenant_id}, PUBLIC_FIELDS).sort("created_at", -1).limit(50)
     return await cursor.to_list(length=50)
+
+
+class ChangePlanRequest(BaseModel):
+    plan: Literal["basic", "standard", "pro"]
+
+
+async def _subscription_of(db, tenant_id: str) -> Dict[str, Any]:
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"subscription": 1}) or {}
+    return tenant.get("subscription", {})
+
+
+@billing_router.post("/change-plan")
+async def change_plan(
+    body: ChangePlanRequest,
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    """Upgrades now with a prorated invoice, paid straight away. Downgrades at the next renewal.
+    Only within the same billing interval."""
+    tenant_id = _tenant_id(current_user)
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+    sub = subscription_for(tenant)
+    if sub.get("status") != "active":
+        raise HTTPException(status_code=409, detail="Plan changes are available while your plan is active.")
+    current = sub.get("plan", DEFAULT_PLAN)
+    if body.plan == current:
+        raise HTTPException(status_code=409, detail="That's already your plan.")
+    interval = sub.get("interval", "month")
+
+    if plan_fee_pkr(body.plan, interval) > plan_fee_pkr(current, interval):
+        now = datetime.now(timezone.utc)
+        invoice = await create_upgrade_invoice(db, tenant_id, sub, body.plan, now)
+        paid, error = await pay_open_invoice(db, invoice)
+        if error:
+            return _payment_failed(error, invoice)
+        return {"invoice": paid, "subscription": await _subscription_of(db, tenant_id)}
+
+    # Downgrade: the lower plan starts at the next renewal.
+    await db["tenants"].update_one({"tenant_id": tenant_id}, {"$set": {"subscription.pending_plan": body.plan}})
+    return {"invoice": None, "subscription": await _subscription_of(db, tenant_id)}
+
+
+@billing_router.post("/cancel")
+async def cancel_subscription(
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    """Keeps everything working until the period ends, then the subscription ends."""
+    tenant_id = _tenant_id(current_user)
+    sub = await _subscription_of(db, tenant_id)
+    if sub.get("status") not in ("active", "past_due"):
+        raise HTTPException(status_code=409, detail="There's no active plan to cancel.")
+    await db["tenants"].update_one({"tenant_id": tenant_id}, {"$set": {"subscription.cancel_at_period_end": True}})
+    return {"subscription": await _subscription_of(db, tenant_id)}
+
+
+@billing_router.post("/resume")
+async def resume_subscription(
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    """Undoes a cancellation that hasn't taken effect yet."""
+    tenant_id = _tenant_id(current_user)
+    sub = await _subscription_of(db, tenant_id)
+    if not sub.get("cancel_at_period_end"):
+        raise HTTPException(status_code=409, detail="Your plan isn't set to end.")
+    await db["tenants"].update_one({"tenant_id": tenant_id}, {"$set": {"subscription.cancel_at_period_end": False}})
+    return {"subscription": await _subscription_of(db, tenant_id)}

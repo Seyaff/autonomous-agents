@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from fastapi import (
@@ -108,6 +108,25 @@ async def handle_inbound_pdf(
     )
 
 
+PAUSED_NOTICE = "Abhi yeh restaurant messages ka jawab nahi de sakta. Thori dair baad dobara message karein."
+PAUSED_NOTICE_EVERY = timedelta(hours=24)
+
+
+async def _send_paused_notice(database, tenant_id: str, customer_phone: str, token, phone_id) -> None:
+    """Tells a customer, at most once a day, that the restaurant isn't taking messages right now."""
+    now = datetime.now(timezone.utc)
+    conversation = await database["conversations"].find_one(
+        {"tenant_id": tenant_id, "customer_phone": customer_phone}, {"paused_notice_at": 1}
+    )
+    last = (conversation or {}).get("paused_notice_at")
+    if last and now - (last if last.tzinfo else last.replace(tzinfo=timezone.utc)) < PAUSED_NOTICE_EVERY:
+        return
+    await send_text(to_phone=customer_phone, text=PAUSED_NOTICE, token=token, phone_number_id=phone_id)
+    await database["conversations"].update_one(
+        {"tenant_id": tenant_id, "customer_phone": customer_phone}, {"$set": {"paused_notice_at": now}}
+    )
+
+
 VOICE_FALLBACK = "Voice note samajh nahi aayi. Please text mein likh dein."
 
 
@@ -200,6 +219,8 @@ async def handle_text_turn(
         allowed, reason = await agent_allowed(database, tenant)
         if not allowed:
             logger.info(f"[{request_id}] Agent skipped for [{sender_phone}] — {reason}")
+            if reason == "subscription paused":
+                await _send_paused_notice(database, tenant_id, sender_phone, tenant_token, tenant_phone_id)
             return
 
         reply_text = await run_customer_support_turn(

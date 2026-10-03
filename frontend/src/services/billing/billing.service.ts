@@ -25,6 +25,11 @@ export interface SubscriptionResponse {
   current_period_start: string | null
   current_period_end: string | null
   cancel_at_period_end: boolean
+  pending_plan: string | null
+  pending_plan_name: string | null
+  next_invoice_date: string | null
+  next_invoice_pkr: number
+  meta_fee_pkr: number
   price_pkr: number
   included_chats: number
   extra_chat_pkr: number
@@ -75,7 +80,7 @@ export interface Invoice {
 }
 
 export interface PaymentResponse {
-  invoice: Invoice
+  invoice: Invoice | null
   subscription: Partial<SubscriptionResponse> & { status?: string; current_period_end?: string | null }
 }
 
@@ -91,5 +96,20 @@ export const payInvoice = async (invoiceId: string): Promise<PaymentResponse> =>
 
 export const getInvoices = async (): Promise<Invoice[]> => {
   const res = await API.get("/billing/invoices")
+  return res.data
+}
+
+export const changePlan = async (plan: string): Promise<PaymentResponse> => {
+  const res = await API.post("/billing/change-plan", { plan })
+  return res.data
+}
+
+export const cancelSubscription = async (): Promise<{ subscription: SubscriptionResponse }> => {
+  const res = await API.post("/billing/cancel")
+  return res.data
+}
+
+export const resumeSubscription = async (): Promise<{ subscription: SubscriptionResponse }> => {
+  const res = await API.post("/billing/resume")
   return res.data
 }

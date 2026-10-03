@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/sidebar"
 import { useAuth } from "@/components/providers/auth-provider"
 import { useInboxSocket } from "@/hooks/inbox/use-inbox-socket"
+import { BillingBanner } from "@/components/billing/billing-banner"
 import { USE_MOCKS } from "@/lib/mocks"
 
 export default function DashboardLayout({
@@ -26,6 +27,7 @@ export default function DashboardLayout({
       <SidebarInset className="gap-0 p-0">
         <div className="flex h-svh flex-1 flex-col overflow-hidden">
           <DashboardTopbar />
+          <BillingBanner />
           {children}
         </div>
       </SidebarInset>

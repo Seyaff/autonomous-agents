@@ -8,7 +8,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePlans } from "@/hooks/billing/use-subscription"
-import { checkout, payInvoice, type PaymentResponse, type PlanOption } from "@/services/billing/billing.service"
+import {
+  changePlan,
+  checkout,
+  payInvoice,
+  type PaymentResponse,
+  type PlanOption,
+} from "@/services/billing/billing.service"
 
 type Interval = "month" | "year"
 type Stage = "pick" | "processing" | "done" | "failed"
@@ -35,22 +41,21 @@ function TestBadge() {
   )
 }
 
-/**
- * Runs one payment and walks through the stages: processing, then "Payment done" or a
- * failure the owner can retry. Used for a new plan and for paying an open invoice.
- */
+/** Processing, then "Payment done" or a failure the owner can retry. */
 function PaymentStages({
   stage,
   result,
   error,
-  planName,
+  successTitle,
+  successNote,
   onRetry,
   onDone,
 }: {
   stage: Stage
   result: PaymentResponse | null
   error: string | null
-  planName: string
+  successTitle: string
+  successNote: string | null
   onRetry: () => void
   onDone: () => void
 }) {
@@ -65,18 +70,13 @@ function PaymentStages({
 
   if (stage === "done" && result) {
     const inv = result.invoice
-    const until = dateLabel(result.subscription.current_period_end)
     return (
       <div className="flex flex-col items-center gap-3 py-6 text-center">
         <CheckCircle2Icon className="size-10 text-ok" />
-        <p className="font-display text-[17px] font-semibold">Payment done</p>
-        <p className="font-mono text-[15px] tabular-nums">{rupees(inv.amount_pkr)}</p>
-        <p className="font-mono text-xs text-muted-foreground">{inv.invoice_id}</p>
-        {until && (
-          <p className="text-sm text-muted-foreground">
-            Your {planName} plan is active until {until}.
-          </p>
-        )}
+        <p className="font-display text-[17px] font-semibold">{successTitle}</p>
+        {inv && <p className="font-mono text-[15px] tabular-nums">{rupees(inv.amount_pkr)}</p>}
+        {inv && <p className="font-mono text-xs text-muted-foreground">{inv.invoice_id}</p>}
+        {successNote && <p className="text-sm text-muted-foreground">{successNote}</p>}
         <DialogFooter className="mt-2 w-full sm:justify-center">
           <Button onClick={onDone}>Done</Button>
         </DialogFooter>
@@ -100,31 +100,47 @@ function PaymentStages({
   return null
 }
 
-/** Pick a plan, then pay it. The subscription starts once the payment goes through. */
+/**
+ * Pick a plan, then pay it. "new" starts a subscription. "change" moves an active one:
+ * an upgrade is charged now (prorated), a downgrade starts at the next renewal.
+ */
 export function PlanPickerDialog({
   open,
   onOpenChange,
+  mode = "new",
   currentPlanKey,
+  currentInterval = "month",
+  periodEnd,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  mode?: "new" | "change"
   currentPlanKey: string | null
+  currentInterval?: Interval
+  periodEnd?: string | null
 }) {
   const plans = usePlans()
   const queryClient = useQueryClient()
-  const [interval, setInterval] = React.useState<Interval>("month")
+  const [interval, setInterval] = React.useState<Interval>(mode === "change" ? currentInterval : "month")
   const [selected, setSelected] = React.useState<string>("standard")
   const [stage, setStage] = React.useState<Stage>("pick")
   const [result, setResult] = React.useState<PaymentResponse | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [downgrade, setDowngrade] = React.useState(false)
 
   const chosen = plans.data?.find((p) => p.key === selected)
+  const currentPlan = plans.data?.find((p) => p.key === currentPlanKey)
+  const isUpgrade =
+    mode === "change" && !!chosen && !!currentPlan && priceFor(chosen, interval) > priceFor(currentPlan, interval)
+  const isChangeToSame = mode === "change" && selected === currentPlanKey
 
   async function pay() {
     setStage("processing")
     setError(null)
+    setDowngrade(mode === "change" && !isUpgrade)
     try {
-      setResult(await checkout(selected, interval))
+      const res = mode === "change" ? await changePlan(selected) : await checkout(selected, interval)
+      setResult(res)
       setStage("done")
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? "The payment didn't go through.")
@@ -133,20 +149,29 @@ export function PlanPickerDialog({
   }
 
   function close() {
-    if (stage === "done") {
-      queryClient.invalidateQueries({ queryKey: ["billing"] })
-    }
+    if (stage === "done") queryClient.invalidateQueries({ queryKey: ["billing"] })
     setStage("pick")
     setResult(null)
     setError(null)
     onOpenChange(false)
   }
 
+  let successTitle = "Payment done"
+  let successNote: string | null = null
+  if (stage === "done" && result) {
+    if (!result.invoice) {
+      successTitle = "Downgrade scheduled"
+      successNote = `${chosen?.name ?? "The new"} plan starts on ${dateLabel(periodEnd) || "your next renewal"}. No payment today.`
+    } else {
+      successNote = `Your ${chosen?.name ?? ""} plan is active${mode === "change" ? " now" : ` until ${dateLabel(result.subscription.current_period_end)}`}.`
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={(o) => (stage === "processing" ? undefined : o ? onOpenChange(true) : close())}>
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle className="font-display">Choose a plan</DialogTitle>
+          <DialogTitle className="font-display">{mode === "change" ? "Change plan" : "Choose a plan"}</DialogTitle>
           <DialogDescription className="flex items-center gap-2">
             <TestBadge />
           </DialogDescription>
@@ -154,18 +179,20 @@ export function PlanPickerDialog({
 
         {stage === "pick" && (
           <div className="flex flex-col gap-4">
-            <div className="inline-flex w-fit rounded-md border p-0.5 text-sm">
-              {(["month", "year"] as Interval[]).map((i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setInterval(i)}
-                  className={`rounded px-3 py-1 ${interval === i ? "bg-foreground text-background" : "text-muted-foreground"}`}
-                >
-                  {i === "month" ? "Monthly" : "Yearly (2 months free)"}
-                </button>
-              ))}
-            </div>
+            {mode === "new" && (
+              <div className="inline-flex w-fit rounded-md border p-0.5 text-sm">
+                {(["month", "year"] as Interval[]).map((i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setInterval(i)}
+                    className={`rounded px-3 py-1 ${interval === i ? "bg-foreground text-background" : "text-muted-foreground"}`}
+                  >
+                    {i === "month" ? "Monthly" : "Yearly (2 months free)"}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="grid gap-3 sm:grid-cols-3">
               {(plans.data ?? []).map((p) => (
@@ -187,12 +214,24 @@ export function PlanPickerDialog({
               ))}
             </div>
 
+            {mode === "change" && chosen && !isChangeToSame && (
+              <p className="text-sm text-muted-foreground">
+                {isUpgrade
+                  ? "Upgrading starts now. You pay the difference for the rest of this period."
+                  : `Downgrading starts on ${dateLabel(periodEnd) || "your next renewal"}. You keep your current plan until then.`}
+              </p>
+            )}
+
             <DialogFooter className="items-center sm:justify-between">
               <span className="font-mono text-sm tabular-nums">
-                {chosen ? `Total ${rupees(priceFor(chosen, interval))}` : ""}
+                {chosen && !isChangeToSame ? `Total ${rupees(priceFor(chosen, interval))}` : ""}
               </span>
-              <Button onClick={pay} disabled={!chosen}>
-                {chosen ? `Pay ${rupees(priceFor(chosen, interval))}` : "Pay"}
+              <Button onClick={pay} disabled={!chosen || isChangeToSame}>
+                {!chosen
+                  ? "Pay"
+                  : mode === "change" && !isUpgrade
+                    ? "Schedule downgrade"
+                    : `Pay ${rupees(priceFor(chosen, interval))}`}
               </Button>
             </DialogFooter>
           </div>
@@ -203,7 +242,8 @@ export function PlanPickerDialog({
             stage={stage}
             result={result}
             error={error}
-            planName={chosen?.name ?? "chosen"}
+            successTitle={downgrade ? "Downgrade scheduled" : successTitle}
+            successNote={successNote}
             onRetry={pay}
             onDone={close}
           />
@@ -219,33 +259,34 @@ export function PayInvoiceDialog({
   amountPkr,
   open,
   onOpenChange,
+  payFn,
 }: {
   invoiceId: string
   amountPkr: number
   open: boolean
   onOpenChange: (open: boolean) => void
+  payFn?: (id: string) => Promise<PaymentResponse>
 }) {
   const queryClient = useQueryClient()
   const [stage, setStage] = React.useState<Stage>("processing")
   const [result, setResult] = React.useState<PaymentResponse | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
-  React.useEffect(() => {
-    if (open) void run()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  async function run() {
+  const run = React.useCallback(async () => {
     setStage("processing")
     setError(null)
     try {
-      setResult(await payInvoice(invoiceId))
+      setResult(await (payFn ?? payInvoice)(invoiceId))
       setStage("done")
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? "The payment didn't go through.")
       setStage("failed")
     }
-  }
+  }, [invoiceId, payFn])
+
+  React.useEffect(() => {
+    if (open) void run()
+  }, [open, run])
 
   function close() {
     if (stage === "done") queryClient.invalidateQueries({ queryKey: ["billing"] })
@@ -266,7 +307,8 @@ export function PayInvoiceDialog({
           stage={stage}
           result={result}
           error={error}
-          planName="current"
+          successTitle="Payment done"
+          successNote={result ? "Your subscription is active." : null}
           onRetry={run}
           onDone={close}
         />

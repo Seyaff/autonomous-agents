@@ -1,13 +1,20 @@
 "use client"
 
 import * as React from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 
 import { PayInvoiceDialog, PlanPickerDialog } from "@/components/billing/payment-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { usePlans, useInvoices, useSubscription } from "@/hooks/billing/use-subscription"
 import { formatMoney } from "@/lib/currency"
-import type { Invoice, SubscriptionResponse } from "@/services/billing/billing.service"
+import {
+  cancelSubscription,
+  resumeSubscription,
+  type Invoice,
+  type SubscriptionResponse,
+} from "@/services/billing/billing.service"
 
 const STATUS_LABEL: Record<SubscriptionResponse["status"], string> = {
   trialing: "Free trial",
@@ -22,15 +29,30 @@ function when(iso: string | null) {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
 }
 
-/** Plan, trial, AI chat usage, plan choice and invoices. */
+/** Plan, trial, AI chat usage, plan changes, cancellation and invoices. */
 export default function BillingPage() {
+  const queryClient = useQueryClient()
   const sub = useSubscription()
   const plans = usePlans()
   const invoices = useInvoices()
   const [pickerOpen, setPickerOpen] = React.useState(false)
+  const [changeOpen, setChangeOpen] = React.useState(false)
+  const [confirmCancel, setConfirmCancel] = React.useState(false)
+  const [busy, setBusy] = React.useState(false)
   const [payingInvoice, setPayingInvoice] = React.useState<Invoice | null>(null)
 
-  if (sub.isLoading || !sub.data) {
+  if (sub.isError) {
+    return (
+      <div className="flex flex-col items-start gap-3 rounded-xl border bg-card p-4">
+        <p className="text-sm text-need">We couldn&apos;t load your plan. Check your connection and try again.</p>
+        <Button variant="outline" onClick={() => sub.refetch()} disabled={sub.isFetching}>
+          Try again
+        </Button>
+      </div>
+    )
+  }
+
+  if (!sub.data) {
     return <p className="text-sm text-muted-foreground">Loading your plan…</p>
   }
 
@@ -41,8 +63,24 @@ export default function BillingPage() {
   const trialing = d.status === "trialing"
   // Same rule as the backend gate: the trial ends at its date or at its chat cap.
   const trialOver = trialing && (d.trial_days_left === 0 || used >= d.included_chats)
-  const canChoose = d.status !== "active"
+  const active = d.status === "active"
+  const canChoose = !active
   const openInvoices = (invoices.data ?? []).filter((i) => i.status === "open")
+  const paidInvoices = (invoices.data ?? []).filter((i) => i.status === "paid")
+
+  async function runSubscriptionAction(action: () => Promise<unknown>, message: string) {
+    setBusy(true)
+    try {
+      await action()
+      await queryClient.invalidateQueries({ queryKey: ["billing"] })
+      toast.success(message)
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail ?? "Something went wrong. Try again.")
+    } finally {
+      setBusy(false)
+      setConfirmCancel(false)
+    }
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-[640px] flex-col gap-6">
@@ -75,14 +113,46 @@ export default function BillingPage() {
         ) : (
           <p className="text-sm text-muted-foreground">
             Current period: {when(d.current_period_start)} to {when(d.current_period_end)}
-            {d.cancel_at_period_end ? " · Ends at the end of this period" : ""}
           </p>
         )}
-        {canChoose && (
-          <div>
-            <Button onClick={() => setPickerOpen(true)}>Choose a plan</Button>
+
+        {d.cancel_at_period_end && (
+          <div className="flex items-center justify-between gap-3 rounded-md bg-need-soft p-3 text-sm text-need">
+            <span>Your plan ends on {when(d.current_period_end)}.</span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => runSubscriptionAction(resumeSubscription, "Your plan will keep renewing.")}
+            >
+              Keep my plan
+            </Button>
           </div>
         )}
+        {d.pending_plan && (
+          <p className="text-sm text-muted-foreground">
+            Changes to {d.pending_plan_name} on {when(d.current_period_end)}.
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          {canChoose && <Button onClick={() => setPickerOpen(true)}>Choose a plan</Button>}
+          {active && !d.cancel_at_period_end && (
+            <>
+              <Button variant="outline" onClick={() => setChangeOpen(true)}>Change plan</Button>
+              {confirmCancel ? (
+                <>
+                  <Button variant="destructive" disabled={busy} onClick={() => runSubscriptionAction(cancelSubscription, "Your plan will end at the end of this period.")}>
+                    Yes, cancel at period end
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirmCancel(false)}>Keep plan</Button>
+                </>
+              ) : (
+                <Button variant="ghost" onClick={() => setConfirmCancel(true)}>Cancel plan</Button>
+              )}
+            </>
+          )}
+        </div>
       </section>
 
       <section className="flex flex-col gap-3 rounded-xl border bg-card p-4">
@@ -99,6 +169,16 @@ export default function BillingPage() {
           {trialing
             ? `Free trial: up to ${d.included_chats} AI chats. Extra chats are charged after you choose a plan.`
             : `Extra chats are ${formatMoney(d.extra_chat_pkr, "PKR")} each, added to your next invoice.`}
+        </p>
+        {!trialing && d.next_invoice_date && !d.cancel_at_period_end && (
+          <p className="text-sm">
+            Next invoice on {when(d.next_invoice_date)}, about{" "}
+            <span className="font-mono tabular-nums">{formatMoney(d.next_invoice_pkr, "PKR")}</span>.
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Your WhatsApp fee this month (paid to Meta, not Siyaf): about{" "}
+          <span className="font-mono tabular-nums">{formatMoney(d.meta_fee_pkr, "PKR")}</span>.
         </p>
       </section>
 
@@ -148,7 +228,7 @@ export default function BillingPage() {
             </div>
           </div>
         ))}
-        {(invoices.data ?? []).filter((i) => i.status === "paid").map((inv) => (
+        {paidInvoices.map((inv) => (
           <div key={inv.invoice_id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
             <div className="flex flex-col">
               <span className="font-mono text-sm">{inv.invoice_id}</span>
@@ -164,7 +244,20 @@ export default function BillingPage() {
         )}
       </section>
 
-      <PlanPickerDialog open={pickerOpen} onOpenChange={setPickerOpen} currentPlanKey={d.plan} />
+      <PlanPickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        mode="new"
+        currentPlanKey={d.plan}
+      />
+      <PlanPickerDialog
+        open={changeOpen}
+        onOpenChange={setChangeOpen}
+        mode="change"
+        currentPlanKey={d.plan}
+        currentInterval={d.interval}
+        periodEnd={d.current_period_end}
+      />
       {payingInvoice && (
         <PayInvoiceDialog
           invoiceId={payingInvoice.invoice_id}
