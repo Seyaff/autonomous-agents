@@ -13,12 +13,13 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from core.llm import get_chat_model
+from core.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,10 @@ CHUNK_CHARS = 5000        # about 1,500 tokens per request, well under per-minut
 MAX_CHUNKS = 40           # 200k characters, more than any printed menu
 MAX_ITEMS = 400
 RETRY_WAIT_SECONDS = 20
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS = 6
+
+# on_progress(parts_done, parts_total, note). note is set while the job waits on the model.
+ProgressCallback = Callable[[int, int, Optional[str]], Awaitable[None]]
 
 EXTRACTION_PROMPT = """Extract the dishes from this part of a restaurant menu.
 
@@ -88,6 +92,12 @@ def chunk_text(text: str, size: int = CHUNK_CHARS) -> List[str]:
     return chunks[:MAX_CHUNKS]
 
 
+def _menu_model():
+    if (settings.LLM_PROVIDER or "groq").lower() == "openai":
+        return get_chat_model(purpose="menu_extractor", temperature=0.0, model=settings.MENU_OPENAI_MODEL)
+    return get_chat_model(purpose="menu_extractor", temperature=0.0, model=settings.MENU_GROQ_MODEL)
+
+
 def _parse_items(text: str) -> List[Dict[str, Any]]:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
@@ -104,8 +114,8 @@ def _is_rate_limit(err: Exception) -> bool:
     return "rate_limit" in text or "429" in text or "413" in text or "too large" in text
 
 
-async def _ask_chunk(model, chunk: str) -> str:
-    """One model call for one chunk. Waits and retries on rate limits."""
+async def _ask_chunk(model, chunk: str, on_wait: Callable[[str], Awaitable[None]]) -> str:
+    """One model call for one part. Waits and retries on rate limits, and says so while it waits."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             response = await model.ainvoke([
@@ -115,14 +125,17 @@ async def _ask_chunk(model, chunk: str) -> str:
             return str(response.content)
         except Exception as err:
             if attempt < MAX_ATTEMPTS and _is_rate_limit(err):
-                logger.info(f"Menu extraction rate limited (attempt {attempt}); waiting {RETRY_WAIT_SECONDS}s")
+                logger.info(f"Menu reading rate limited (attempt {attempt}); waiting {RETRY_WAIT_SECONDS}s")
+                await on_wait(
+                    f"The reading model is busy (try {attempt} of {MAX_ATTEMPTS}). Retrying in {RETRY_WAIT_SECONDS} seconds."
+                )
                 await asyncio.sleep(RETRY_WAIT_SECONDS)
                 continue
             raise
     raise RuntimeError("unreachable")
 
 
-async def extract_menu_items(menu_text: str) -> List[Dict[str, Any]]:
+async def extract_menu_items(menu_text: str, on_progress: Optional[ProgressCallback] = None) -> List[Dict[str, Any]]:
     """Returns validated, de-duplicated dishes from the whole menu.
 
     A chunk the model can't read is skipped and logged. Only a failure on every
@@ -131,7 +144,7 @@ async def extract_menu_items(menu_text: str) -> List[Dict[str, Any]]:
     if not text:
         return []
 
-    model = get_chat_model(purpose="menu_extractor", temperature=0.0)
+    model = _menu_model()
     chunks = chunk_text(text)
     logger.info(f"Menu extraction: {len(chunks)} chunk(s)")
 
@@ -140,9 +153,18 @@ async def extract_menu_items(menu_text: str) -> List[Dict[str, Any]]:
     failures = 0
     last_error: Optional[Exception] = None
 
+    async def report(done: int, note: Optional[str] = None) -> None:
+        if on_progress:
+            await on_progress(done, len(chunks), note)
+
     for index, chunk in enumerate(chunks, start=1):
+        await report(index - 1)
+
+        async def on_wait(note: str, _done: int = index - 1) -> None:
+            await report(_done, note)
+
         try:
-            raw_reply = await _ask_chunk(model, chunk)
+            raw_reply = await _ask_chunk(model, chunk, on_wait)
             parsed = _parse_items(raw_reply)
         except Exception as err:
             failures += 1
@@ -162,8 +184,10 @@ async def extract_menu_items(menu_text: str) -> List[Dict[str, Any]]:
             seen.add(key)
             items.append(item)
             if len(items) >= MAX_ITEMS:
+                await report(len(chunks))
                 return items
 
+    await report(len(chunks))
     if failures == len(chunks) and last_error is not None:
         raise last_error
     return items

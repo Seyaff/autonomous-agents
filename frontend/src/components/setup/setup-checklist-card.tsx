@@ -29,7 +29,7 @@ export function SetupChecklistCard() {
           return (
             <div key={step} className="flex items-center justify-between gap-3">
               <span className="text-sm">{item.title}</span>
-              <Button size="sm" variant="outline" render={<Link href={item.href} />}>
+              <Button size="sm" variant="outline" nativeButton={false} render={<Link href={item.href} />}>
                 {item.cta}
               </Button>
             </div>

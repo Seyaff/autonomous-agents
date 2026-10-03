@@ -2,56 +2,40 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { FileTextIcon, UploadCloudIcon, WrenchIcon } from "lucide-react"
+import { useMutation } from "@tanstack/react-query"
+import { AlertCircleIcon, FileTextIcon, UploadCloudIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { useAuth } from "@/components/providers/auth-provider"
 import { useMenuItems } from "@/hooks/setup/use-menu-items"
+import { useMenuUpload, isActive } from "@/hooks/setup/use-menu-upload"
 import { useSetupState } from "@/hooks/setup/use-setup-state"
 import { useSetupStep } from "@/hooks/setup/use-setup-step"
 import { formatMoney } from "@/lib/currency"
-import {
-  sendTestMessage,
-  uploadMenuPdf,
-  type TestChatReply,
-} from "@/services/setup/setup.service"
+import { sendTestMessage, type TestChatReply } from "@/services/setup/setup.service"
 import { StepError, errorDetail } from "@/components/setup/steps/common"
 
 const MAX_BYTES = 20 * 1024 * 1024
 
 export function MenuStep() {
   const router = useRouter()
-  const queryClient = useQueryClient()
   const { activeTenantId } = useAuth()
   const setup = useSetupState({ enabled: !!activeTenantId })
   const menu = useMenuItems(!!activeTenantId)
+  const upload = useMenuUpload(!!activeTenantId)
   const { complete } = useSetupStep()
   const currency = setup.tenant?.currency ?? "USD"
 
   const [dragging, setDragging] = React.useState(false)
   const [replacing, setReplacing] = React.useState(false)
-  const [fileName, setFileName] = React.useState<string | null>(null)
-  const [uploadError, setUploadError] = React.useState<string | null>(null)
+  const [pickError, setPickError] = React.useState<string | null>(null)
   const [question, setQuestion] = React.useState("")
   const [answer, setAnswer] = React.useState<TestChatReply | null>(null)
-
-  const upload = useMutation({
-    mutationFn: (file: File) => uploadMenuPdf(file),
-    onSuccess: async (result) => {
-      setReplacing(false)
-      setUploadError(result.items_error ?? null)
-      await queryClient.invalidateQueries({ queryKey: ["tenant", "menu-items"] })
-      if (!result.items_error) toast(`${result.items_found} dishes found.`)
-    },
-    onError: (err) => {
-      setUploadError(errorDetail(err, "Could not read that file. Try a PDF."))
-    },
-  })
 
   const ask = useMutation({
     mutationFn: (text: string) => sendTestMessage(text),
@@ -61,29 +45,33 @@ export function MenuStep() {
 
   function takeFile(file: File | undefined) {
     if (!file) return
-    setUploadError(null)
+    setPickError(null)
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setUploadError("Only PDF menus are supported for now.")
+      setPickError("Only PDF menus are supported for now.")
       return
     }
     if (file.size > MAX_BYTES) {
-      setUploadError("That file is over 20 MB. Try a smaller PDF.")
+      setPickError("That file is over 20 MB. Try a smaller PDF.")
       return
     }
-    setFileName(file.name)
-    upload.mutate(file)
+    setReplacing(false)
+    upload.start.mutate(file, {
+      onError: (err) => setPickError(errorDetail(err, "Could not start reading that PDF. Try again.")),
+    })
   }
 
+  const job = upload.current
+  const running = job && isActive(job) ? job : null
+  const failed = job && job.status === "failed" ? job : null
   const items = menu.data?.items ?? []
   const hasItems = items.length > 0
-  const sourceName = menu.data?.source_filename ?? fileName
+  const sourceName = menu.data?.source_filename ?? job?.filename ?? null
 
   function advance(action: "complete" | "skip") {
-    complete.mutate(
-      { step: "menu", action },
-      { onSuccess: () => router.push("/setup/hours") }
-    )
+    complete.mutate({ step: "menu", action }, { onSuccess: () => router.push("/setup/hours") })
   }
+
+  const showDropzone = !running && (replacing || (!hasItems && !failed))
 
   return (
     <>
@@ -94,13 +82,49 @@ export function MenuStep() {
         </DialogDescription>
       </div>
 
-      {upload.isPending ? (
-        <div className="space-y-3 rounded-lg border border-border p-6 text-center">
-          <p className="text-sm font-medium">{fileName}</p>
-          <Progress value={null} />
-          <p className="font-mono text-[12px] text-muted-foreground">Finding dishes, categories and prices.</p>
+      {running && (
+        <div className="space-y-3 rounded-lg border border-border p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">{running.filename}</span>
+            </p>
+            <span className="font-mono text-[12px] text-muted-foreground tabular-nums">
+              {running.stage === "reading" && running.chunks_total > 0
+                ? `${running.chunks_done} of ${running.chunks_total} parts`
+                : ""}
+            </span>
+          </div>
+          <Progress
+            value={
+              running.stage === "reading" && running.chunks_total > 0
+                ? Math.round((running.chunks_done / running.chunks_total) * 100)
+                : null
+            }
+          />
+          <p className="font-mono text-[12px] text-muted-foreground">{running.label}…</p>
+          <p className="text-xs text-muted-foreground">
+            You can leave this page. Reading keeps going, and this page picks up where it left off.
+          </p>
         </div>
-      ) : !hasItems || replacing ? (
+      )}
+
+      {failed && !running && (
+        <Alert variant="destructive">
+          <AlertCircleIcon className="size-4" />
+          <AlertTitle>{failed.filename} wasn&apos;t read</AlertTitle>
+          <AlertDescription>
+            {failed.error ?? "Something went wrong while reading the menu."}
+            <div className="mt-2">
+              <Button size="sm" variant="outline" onClick={() => { upload.reset(); setReplacing(true) }}>
+                Upload a different PDF
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {showDropzone && (
         <label
           onDragOver={(e) => {
             e.preventDefault()
@@ -122,16 +146,19 @@ export function MenuStep() {
             PDF up to 20 MB. Photos of a printed menu aren&apos;t supported yet.
           </span>
           <span className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-sm">
-            Choose file
+            {upload.start.isPending ? "Starting..." : "Choose file"}
           </span>
           <Input
             type="file"
             accept="application/pdf,.pdf"
             className="sr-only"
+            disabled={upload.start.isPending}
             onChange={(e) => takeFile(e.target.files?.[0])}
           />
         </label>
-      ) : (
+      )}
+
+      {!running && !failed && !showDropzone && hasItems && (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <p className="flex items-center gap-2 text-sm">
@@ -202,22 +229,22 @@ export function MenuStep() {
         </div>
       )}
 
-      {menu.data && !hasItems && !upload.isPending && !uploadError && (
+      {pickError && <StepError message={pickError} />}
+
+      {!running && !hasItems && !failed && !pickError && menu.data && (
         <p className="font-mono text-[12px] text-muted-foreground">
           Nothing read from the menu yet. Upload a PDF to continue, or skip this step for now.
         </p>
       )}
 
-      <StepError message={uploadError} />
-
       <DialogFooter>
-        <Button variant="outline" onClick={() => router.push("/setup/restaurant")}>
+        <Button variant="outline" onClick={() => router.push("/setup/restaurant")} disabled={!!running}>
           Back
         </Button>
-        <Button variant="ghost" onClick={() => advance("skip")} disabled={complete.isPending}>
+        <Button variant="ghost" onClick={() => advance("skip")} disabled={complete.isPending || !!running}>
           Skip for now
         </Button>
-        <Button onClick={() => advance("complete")} disabled={!hasItems || complete.isPending}>
+        <Button onClick={() => advance("complete")} disabled={!hasItems || complete.isPending || !!running}>
           Continue
         </Button>
       </DialogFooter>

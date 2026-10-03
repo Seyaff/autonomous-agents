@@ -140,10 +140,40 @@ export const saveAgentSettings = async (payload: AgentSettingsPayload) => {
   return res.data
 }
 
-export const uploadMenuPdf = async (file: File) => {
+export type MenuJobStatus = "queued" | "running" | "done" | "failed"
+export type MenuJobStage = "received" | "indexing" | "reading" | "saving" | "done" | "failed"
+
+export interface MenuJob {
+  id: string
+  job_id: string
+  filename: string
+  status: MenuJobStatus
+  stage: MenuJobStage
+  label: string
+  chunks_done: number
+  chunks_total: number
+  items_found: number
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Starts reading a menu in the background. Returns at once with a job to poll. */
+export const uploadMenuPdf = async (file: File): Promise<{ job_id: string }> => {
   const form = new FormData()
   form.append("file", file)
-  // Reading a long menu takes minutes on a rate-limited model, so this call waits longer than the default 30s.
-  const res = await API.post("/tenant/upload-menu-pdf", form, { timeout: 240_000 })
-  return res.data as { items_found: number; items_error?: string; title?: string }
+  // Only the upload itself is sent now. Reading happens on the server, so the
+  // request returns in well under a second.
+  const res = await API.post("/tenant/upload-menu-pdf", form, { timeout: 60_000 })
+  return res.data
+}
+
+export const getMenuUpload = async (jobId: string): Promise<MenuJob> => {
+  const res = await API.get(`/tenant/menu-uploads/${jobId}`)
+  return res.data.job
+}
+
+export const getLatestMenuUpload = async (): Promise<MenuJob | null> => {
+  const res = await API.get("/tenant/menu-uploads/latest")
+  return res.data.job
 }

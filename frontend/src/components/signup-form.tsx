@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input"
 import { GalleryVerticalEndIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
+import { getUserQuery } from "@/services/auth/auth.service"
 import { useGoogleLogin } from "@/hooks/auth/use-google"
 import API from "@/lib/axios-client"
 
@@ -28,6 +30,7 @@ export function SignupForm({
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -41,6 +44,8 @@ export function SignupForm({
         password,
       })
       if (res.data.status === "success") {
+        // Load the new session before moving on, or the gate sees the old "signed out" state.
+        await queryClient.fetchQuery({ queryKey: ["me"], queryFn: getUserQuery, staleTime: 0 })
         router.push("/setup")
       }
     } catch (err: any) {

@@ -108,8 +108,8 @@ export function HoursStep() {
   async function save() {
     if (saving) return
     if (paymentError || areaError) {
+      // Show the problem inline on the tab that has it, once.
       setTab("delivery")
-      setError(paymentError ?? areaError)
       return
     }
     setSaving(true)
