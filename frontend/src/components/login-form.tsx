@@ -18,7 +18,7 @@ import API from "@/lib/axios-client"
 
 export function LoginForm({
   className,
-  next = "/onboarding",
+  next = "/setup",
   ...props
 }: React.ComponentProps<"div"> & { next?: string }) {
   const router = useRouter()
