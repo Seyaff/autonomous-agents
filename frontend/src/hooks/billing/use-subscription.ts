@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { getPlans, getSubscription } from "@/services/billing/billing.service"
+import { getInvoices, getPlans, getSubscription } from "@/services/billing/billing.service"
 import { USE_MOCKS } from "@/lib/mocks"
 import { useAuth } from "@/components/providers/auth-provider"
 
@@ -23,5 +23,15 @@ export function usePlans() {
     queryFn: getPlans,
     enabled: !USE_MOCKS && !!activeTenantId,
     staleTime: 60 * 60 * 1000,
+  })
+}
+
+export function useInvoices() {
+  const { activeTenantId } = useAuth()
+  return useQuery({
+    queryKey: ["billing", "invoices"],
+    queryFn: getInvoices,
+    enabled: !USE_MOCKS && !!activeTenantId,
+    staleTime: 30 * 1000,
   })
 }

@@ -50,6 +50,17 @@ USAGE = "usage_counters"
 USAGE_CONVERSATIONS = "usage_conversations"
 
 
+def add_months(dt: datetime, months: int) -> datetime:
+    """Same day next month(s), or the last day of the month when it's shorter."""
+    import calendar
+
+    month_index = dt.month - 1 + months
+    year = dt.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
 def current_period(now: Optional[datetime] = None) -> str:
     now = now or datetime.now(timezone.utc)
     return now.strftime("%Y-%m")

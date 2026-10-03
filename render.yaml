@@ -11,6 +11,8 @@ services:
         sync: false
       - key: DATABASE_NAME
         sync: false
+      - key: PAYMENTS_PROVIDER
+        value: dummy
       - key: LLM_PROVIDER
         value: openai
       - key: GROQ_API_KEY
