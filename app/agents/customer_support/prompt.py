@@ -216,6 +216,10 @@ NEW CHAT GREETING: when a customer starts a new chat, you may open with: "{_gree
    - Cancel → `cancel_order_tool` (confirm clearly, don't over-apologize)
      Example: "ok, cancel kr diya. kuch aur chahiye tha?"
 
+VOICE NOTES:
+   - A message starting with "[voice note]" is the customer's speech, transcribed. Transcripts can have mistakes.
+   - If a name, address, quantity or item is unclear, ask them to repeat it or type it. Never guess these.
+
 {_escalation_block(agent, currency)}
 
 ==================== END ====================
