@@ -51,19 +51,31 @@ export function useRail() {
   function advance(order: RailOrder, nextStatus: OrderStatus) {
     if (USE_MOCKS) {
       patchMockOrder(queryClient, order.order_id, { status: nextStatus, updated_at: new Date().toISOString() })
-    } else {
-      updateStatus.mutate({ orderId: order.order_id, status: nextStatus })
+      const phrase = STATUS_PHRASE[nextStatus]
+      if (phrase) {
+        toast(`${order.order_id} ${phrase}. ${order.customer_name ?? "The customer"} got a WhatsApp update.`)
+      }
+      return
     }
 
-    const phrase = STATUS_PHRASE[nextStatus]
-    if (!phrase) return
-    if (USE_MOCKS) {
-      toast(`${order.order_id} ${phrase}. ${order.customer_name ?? "The customer"} got a WhatsApp update.`)
-    } else {
-      // TODO(backend): PATCH /orders/{id} doesn't notify the customer yet
-      // (owner roadmap #5) — don't claim a WhatsApp update that didn't happen.
-      toast(`${order.order_id} ${phrase}.`)
-    }
+    updateStatus.mutate(
+      { orderId: order.order_id, status: nextStatus },
+      {
+        onSuccess: (data: { customer_notified?: boolean }) => {
+          const phrase = STATUS_PHRASE[nextStatus]
+          if (!phrase) return
+          toast(
+            data.customer_notified
+              ? `${order.order_id} ${phrase}. The customer got a WhatsApp update.`
+              : `${order.order_id} ${phrase}. The customer was not messaged (outside the 24-hour WhatsApp window).`
+          )
+        },
+        onError: (err: unknown) => {
+          const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+          toast.error(detail ?? "Could not update the order.")
+        },
+      }
+    )
   }
 
   return {

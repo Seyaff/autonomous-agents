@@ -5,6 +5,8 @@ from api.v1.endpoints.whatsapp import whatsapp_router, alias_router
 from api.v1.endpoints.auth import auth_routes
 from api.v1.endpoints.user import user_routes
 from api.v1.endpoints.orders import order_router
+from api.v1.endpoints.kpis import kpi_router
+from api.v1.endpoints.customers import customer_router
 from api.v1.endpoints.analytics import analytics_router
 from api.v1.endpoints.founder import founder_router
 from api.v1.endpoints.knowledge import knowledge_router
@@ -20,6 +22,8 @@ v1_router.include_router(auth_routes)
 v1_router.include_router(user_routes)
 v1_router.include_router(tenant_routes)
 v1_router.include_router(order_router)
+v1_router.include_router(kpi_router)
+v1_router.include_router(customer_router)
 v1_router.include_router(analytics_router)
 v1_router.include_router(founder_router)
 v1_router.include_router(knowledge_router)

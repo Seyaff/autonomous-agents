@@ -9,9 +9,9 @@ from pymongo.errors import PyMongoError
 from core.database import get_database
 from repositories.inbox_repo import inbox_repo
 from services.conversation_state import broadcast_conversation_updated
+from services.order_service import compute_totals, initial_status_entry
 from core.settings import settings
 from core.events import broadcast_order_update
-from memory.customer_memory import update_customer_profile
 from services.pdf_ingestion import embedding_model
 from langchain_pinecone import PineconeVectorStore
 
@@ -37,7 +37,6 @@ async def search_uploaded_documents(query: str, config: RunnableConfig) -> str:
 async def create_order_tool(
     delivery_address: str,
     items: List[Dict[str, Any]],
-    total_amount: float,
     payment_method: str = "cod",
     customer_notes: Optional[str] = None,
     customer_name: Optional[str] = None,
@@ -49,7 +48,7 @@ async def create_order_tool(
         delivery_address: Destination delivery address provided by the customer.
         items: List of ordered dishes/items. Each dict MUST contain 'name', 'quantity', and 'price'.
                Example: [{"name": "Chicken Biryani", "quantity": 2, "price": 14.0}]
-        total_amount: Final calculated total cost for the customer.
+        The total (including delivery) is calculated by the system, not by you.
         payment_method: Payment method chosen by customer ('cod', 'card', 'cash'). Default is 'cod'.
         customer_notes: Optional special instructions (e.g. 'extra spicy', 'no onions').
         customer_name: Optional customer name if provided.
@@ -79,18 +78,26 @@ async def create_order_tool(
             })
             item_names.append(name)
 
+        subtotal, delivery_fee, total_amount, eta_minutes = compute_totals(formatted_items, tenant_doc)
         now = datetime.now(timezone.utc)
         order_document = {
             "order_id": order_id,
             "tenant_id": tenant_id,
             "customer_phone": customer_phone,
             "customer_name": customer_name,
+            "conversation_id": f"conv_{tenant_id}_{customer_phone}",
+            "source": "ai_agent",
             "delivery_address": delivery_address,
             "items": formatted_items,
-            "total_amount": float(total_amount),
+            "currency": currency,
+            "subtotal": subtotal,
+            "delivery_fee": delivery_fee,
+            "total_amount": total_amount,
+            "eta_minutes": eta_minutes,
             "payment_method": payment_method,
             "customer_notes": customer_notes,
             "status": "pending",  # pending, accepted, preparing, out_for_delivery, delivered, cancelled
+            "status_history": [initial_status_entry(now, by="agent")],
             "created_at": now,
             "updated_at": now,
         }
@@ -99,20 +106,6 @@ async def create_order_tool(
 
         if result.inserted_id:
             order_document["_id"] = str(result.inserted_id)
-            # Update customer's long-term profile
-            try:
-                await update_customer_profile(
-                    tenant_id=tenant_id,
-                    customer_phone=customer_phone,
-                    name=customer_name,
-                    delivery_address=delivery_address,
-                    notes=customer_notes,
-                    order_amount=float(total_amount),
-                    favorite_items=item_names,
-                )
-            except Exception as pe:
-                logger.warning(f"Could not update customer profile: {pe}")
-
             # Push real-time event to owner dashboard
             try:
                 await broadcast_order_update(
@@ -127,7 +120,9 @@ async def create_order_tool(
             return (
                 f"Order placed successfully! Reference ID: {order_id}.\n"
                 f"Items: {items_summary}\n"
+                f"Subtotal: {currency} {subtotal:.2f}, Delivery: {currency} {delivery_fee:.2f}\n"
                 f"Total Amount: {currency} {total_amount:.2f}\n"
+                f"Estimated time: about {eta_minutes} minutes\n"
                 f"Delivery Address: {delivery_address}\n"
                 f"Payment Method: {payment_method.upper()}\n"
                 f"Status: PENDING confirmation by the restaurant."
@@ -185,7 +180,7 @@ async def get_order_status_tool(
             f"- Status: {status}\n"
             f"- Placed At: {time_str}\n"
             f"- Items: {items_summary}\n"
-            f"- Total: ${total:.2f}\n"
+            f"- Total: {order.get('currency', 'USD')} {total:.2f}\n"
             f"- Delivery To: {address}"
         )
 

@@ -7,6 +7,13 @@ from pydantic import BaseModel, Field
 from core.database import get_database
 from core.events import broadcast_order_update
 from middlewares.auth_middleware import require_owner
+from services.order_service import (
+    ORDER_STATUSES,
+    is_valid_transition,
+    notify_customer_status,
+    parse_range_bound,
+    tenant_timezone,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +28,8 @@ class OrderStatusUpdate(BaseModel):
 @order_router.get("")
 async def list_orders(
     status_filter: Optional[str] = Query(None, alias="status"),
+    from_: Optional[str] = Query(None, alias="from", description="ISO datetime, inclusive. Naive values are in the tenant's timezone."),
+    to: Optional[str] = Query(None, description="ISO datetime, exclusive. Naive values are in the tenant's timezone."),
     limit: int = Query(50, ge=1, le=100),
     skip: int = Query(0, ge=0),
     current_user: dict = Depends(require_owner),
@@ -37,6 +46,19 @@ async def list_orders(
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if status_filter:
         query["status"] = status_filter.lower()
+
+    if from_ or to:
+        tenant = await db["tenants"].find_one({"tenant_id": tenant_id})
+        tz_name = tenant_timezone(tenant)
+        window: Dict[str, Any] = {}
+        try:
+            if from_:
+                window["$gte"] = parse_range_bound(from_, tz_name)
+            if to:
+                window["$lt"] = parse_range_bound(to, tz_name)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="from/to must be ISO datetimes, e.g. 2026-10-03T00:00:00")
+        query["created_at"] = window
 
     # ✅ PyMongo async: find() returns a cursor directly (no await needed here)
     cursor = db["orders"].find(query).sort("created_at", -1).skip(skip).limit(limit)
@@ -151,9 +173,10 @@ async def update_order_status(
     current_user: dict = Depends(require_owner),
     db = Depends(get_database)
 ):
-    """Updates order status from the dashboard and broadcasts real-time WebSocket event."""
+    """Moves an order to a new status. Only the transitions in ORDER_TRANSITIONS
+    are allowed (409 otherwise). The change is appended to status_history, the
+    customer is told when Meta allows it, and the result says whether they were."""
     tenant_id = current_user.get("active_tenant_id")
-    # ✅ FIX: same tenant guard as above
     if not tenant_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -165,28 +188,42 @@ async def update_order_status(
         raise HTTPException(status_code=404, detail="Order not found")
 
     new_status = payload.status.lower()
-    valid_statuses = ["pending", "accepted", "preparing", "out_for_delivery", "delivered", "cancelled"]
-    if new_status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    if new_status not in ORDER_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {list(ORDER_STATUSES)}")
 
-    update_doc: Dict[str, Any] = {
+    current_status = order.get("status", "pending")
+    if not is_valid_transition(current_status, new_status):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot move order from '{current_status}' to '{new_status}'.",
+        )
+
+    now = datetime.now(timezone.utc)
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id})
+    customer_notified = await notify_customer_status(
+        db, tenant or {"tenant_id": tenant_id}, order, new_status
+    )
+
+    history_entry = {
         "status": new_status,
-        "updated_at": datetime.now(timezone.utc)
+        "at": now,
+        "by": "owner",
+        "by_user_id": current_user.get("user_id"),
+        "customer_notified": customer_notified,
     }
+    update_doc: Dict[str, Any] = {"status": new_status, "updated_at": now}
     if payload.notes:
         update_doc["admin_notes"] = payload.notes
 
-    # ✅ FIX: scope the update by tenant_id too (defense in depth + better index usage)
     await db["orders"].update_one(
         {"order_id": order_id, "tenant_id": tenant_id},
-        {"$set": update_doc}
+        {"$set": update_doc, "$push": {"status_history": history_entry}},
     )
 
     order.update(update_doc)
-    if "_id" in order:
-        order["_id"] = str(order["_id"])
+    order.setdefault("status_history", []).append(history_entry)
+    order.pop("_id", None)
 
-    
     await broadcast_order_update(
         tenant_id=tenant_id,
         event_type="order.updated",
@@ -196,5 +233,6 @@ async def update_order_status(
     return {
         "status": "success",
         "message": f"Order {order_id} marked as {new_status}",
-        "order": order
+        "order": order,
+        "customer_notified": customer_notified,
     }
