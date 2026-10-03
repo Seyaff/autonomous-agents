@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     MENU_GROQ_MODEL: str = "openai/gpt-oss-20b"
     MENU_OPENAI_MODEL: str = "gpt-4.1-mini"
 
+    # Speech-to-text for customers' voice notes (Urdu).
+    TRANSCRIBE_GROQ_MODEL: str = "whisper-large-v3-turbo"
+    TRANSCRIBE_OPENAI_MODEL: str = "whisper-1"
+
     WHATSAPP_VERIFY_TOKEN: str = Field(
         validation_alias=AliasChoices(
             "META_VERIFY_TOKEN", "WHATSAPP_VERIFY_TOKEN"

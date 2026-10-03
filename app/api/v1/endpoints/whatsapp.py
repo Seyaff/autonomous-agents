@@ -107,6 +107,51 @@ async def handle_inbound_pdf(
     )
 
 
+VOICE_FALLBACK = "Voice note samajh nahi aayi. Please text mein likh dein."
+
+
+async def handle_voice_turn(
+    database,
+    tenant: Dict[str, Any],
+    tenant_id: str,
+    sender_phone: str,
+    media_id: str,
+    tenant_token: Optional[str],
+    tenant_phone_id: Optional[str],
+    request_id: str = "bg",
+    customer_name: str = "",
+):
+    """Background task for a voice note: download, transcribe, then handle as text."""
+    from services.voice_transcription import TranscriptionError, transcribe_urdu_audio
+
+    try:
+        audio = await download_whatsapp_media(media_id, token=tenant_token)
+        transcript = await transcribe_urdu_audio(audio)
+    except (ValueError, TranscriptionError) as e:
+        logger.warning(f"[{request_id}] Voice note from [{sender_phone}] not transcribed: {e}")
+        transcript = ""
+    except Exception as e:
+        logger.exception(f"[{request_id}] Voice note from [{sender_phone}] failed: {e}")
+        transcript = ""
+
+    if not transcript:
+        await send_text(to_phone=sender_phone, text=VOICE_FALLBACK, token=tenant_token, phone_number_id=tenant_phone_id)
+        return
+
+    logger.info(f"[{request_id}] Voice note from [{sender_phone}] transcribed: {transcript[:120]}")
+    await handle_text_turn(
+        database=database,
+        tenant=tenant,
+        tenant_id=tenant_id,
+        sender_phone=sender_phone,
+        user_payload=f"[voice note] {transcript}",
+        tenant_token=tenant_token,
+        tenant_phone_id=tenant_phone_id,
+        request_id=request_id,
+        customer_name=customer_name,
+    )
+
+
 async def handle_text_turn(
     database,
     tenant: Dict[str, Any],
@@ -432,8 +477,21 @@ async def receive_meta_webhook(
             )
 
     elif msg_type == "audio":
-        logger.info(f"[{request_id}] Audio message from {sender_phone}: {msg}")
-        # TODO: handle audio later
+        # Voice notes: transcribed in the background, then handled like a text message.
+        media_id = (msg.get("audio") or {}).get("id")
+        if media_id and sender_phone:
+            background_tasks.add_task(
+                handle_voice_turn,
+                database=database,
+                tenant=tenant,
+                tenant_id=tenant_id,
+                sender_phone=sender_phone,
+                media_id=media_id,
+                tenant_token=tenant_token,
+                tenant_phone_id=tenant_phone_id,
+                request_id=request_id,
+                customer_name=customer_name,
+            )
 
     # ---- 5. ACK in milliseconds ----
     return {"status": "success"}
