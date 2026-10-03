@@ -9,6 +9,7 @@ from pymongo.errors import PyMongoError
 from core.database import get_database
 from repositories.inbox_repo import inbox_repo
 from services.conversation_state import broadcast_conversation_updated
+from services.alerts import raise_alert
 from services.order_service import compute_totals, initial_status_entry
 from core.setup_state import hours_status
 from core.settings import settings
@@ -163,10 +164,27 @@ async def create_order_tool(
 
     except PyMongoError as e:
         logger.error(f"PyMongo error in create_order_tool: {e}")
+        await _alert_order_failed(tenant_id, customer_phone, str(e))
         return f"Database error creating order: {str(e)}"
     except Exception as e:
         logger.error(f"Unexpected error in create_order_tool: {e}")
+        await _alert_order_failed(tenant_id, customer_phone, str(e))
         return f"Failed to place order: {str(e)}"
+
+
+async def _alert_order_failed(tenant_id: str, customer_phone: str, reason: str) -> None:
+    """A customer tried to order and the order was not saved. The owner needs to know."""
+    if tenant_id == "default_tenant" or not customer_phone or customer_phone == "unknown_customer":
+        return
+    await raise_alert(
+        get_database(),
+        tenant_id,
+        kind="order_failed",
+        title=f"An order from {customer_phone} was not saved",
+        detail=f"The customer was told it failed, so they may call. ({reason[:160]})",
+        severity="critical",
+        ref={"customer_phone": customer_phone},
+    )
 
 
 @tool
@@ -363,7 +381,25 @@ async def escalate_to_owner(
             summary=summary[:300],
         )
         await broadcast_conversation_updated(tenant_id, conversation)
+        await raise_alert(
+            get_database(),
+            tenant_id,
+            kind="customer_needs_you",
+            title=f"{customer_phone} needs you",
+            detail=f"{reason}: {summary[:200]}",
+            severity="warning",
+            ref={"customer_phone": customer_phone, "conversation_id": conversation_id},
+        )
         return "Escalated to the restaurant. Tell the customer you've passed this to the restaurant."
     except Exception as e:
         logger.error(f"Error escalating conversation {conversation_id}: {e}")
+        await raise_alert(
+            get_database(),
+            tenant_id,
+            kind="escalation_failed",
+            title=f"A complaint from {customer_phone} could not be passed to you",
+            detail="The customer was told to wait. Check the conversation now.",
+            severity="critical",
+            ref={"customer_phone": customer_phone},
+        )
         return "Could not escalate right now. Apologise and ask the customer to wait."

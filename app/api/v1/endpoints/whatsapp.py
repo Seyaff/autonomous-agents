@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 from fastapi import (
@@ -15,8 +15,10 @@ from pymongo.errors import DuplicateKeyError
 
 from core.settings import settings
 from core.database import get_database
+from services.alerts import raise_alert
 from core.whatsapp_utils import (
     download_whatsapp_media,
+    send_text,
     send_whatsapp_message,
     resolve_tenant_whatsapp_credentials,
 )
@@ -171,24 +173,63 @@ async def handle_text_turn(
                 sender="agent",
             )
             
-            # Send via WhatsApp
-            await send_whatsapp_message(
+            # Send via WhatsApp. Record what actually happened, and tell the owner if it didn't go.
+            result = await send_text(
                 to_phone=sender_phone,
                 text=reply_text,
                 token=tenant_token,
                 phone_number_id=tenant_phone_id,
             )
-            
-            # Update message status to sent with wamid from response
-            # Note: send_whatsapp_message doesn't return wamid, would need to be updated
             if message:
                 await message_service.update_outbound_status(
                     message_id=message.message_id,
                     wamid="pending",  # placeholder, actual wamid from Meta callback
-                    status="sent",
+                    status="sent" if result.ok else "failed",
                 )
+            if not result.ok:
+                await _report_send_failure(database, tenant_id, sender_phone, result, "reply")
     except Exception as e:
         logger.exception(f"[{request_id}] Background text turn failed for {sender_phone}: {e}")
+        await raise_alert(
+            database,
+            tenant_id,
+            kind="message_not_handled",
+            title=f"A message from {sender_phone} was not handled",
+            detail=f"Something went wrong while answering. Check the conversation in your inbox. ({type(e).__name__})",
+            severity="critical",
+            ref={"customer_phone": sender_phone},
+        )
+
+
+async def _report_send_failure(database, tenant_id: str, sender_phone: str, result, what: str) -> None:
+    """A WhatsApp send failed. If the token is the problem, the restaurant is marked disconnected too."""
+    if result.auth_error:
+        await database["tenants"].update_one(
+            {"tenant_id": tenant_id},
+            {"$set": {
+                "whatsapp_status": "error",
+                "whatsapp_last_error": result.error_message or "WhatsApp rejected the token",
+                "whatsapp_checked_at": datetime.now(timezone.utc),
+            }},
+        )
+        await raise_alert(
+            database,
+            tenant_id,
+            kind="whatsapp_disconnected",
+            title="WhatsApp is disconnected",
+            detail="Customers aren't getting replies. Reconnect WhatsApp in Settings.",
+            severity="critical",
+        )
+    else:
+        await raise_alert(
+            database,
+            tenant_id,
+            kind=f"{what}_not_sent",
+            title=f"A {what} to {sender_phone} wasn't delivered",
+            detail=result.error_message or "WhatsApp did not accept the message.",
+            severity="warning",
+            ref={"customer_phone": sender_phone},
+        )
 
 
 # ---------------------------------------------------------------------------
