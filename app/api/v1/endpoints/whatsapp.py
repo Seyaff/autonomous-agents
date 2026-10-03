@@ -152,6 +152,7 @@ async def handle_text_turn(
             tenant=tenant,
             customer_phone=sender_phone,
             user_message=user_payload,
+            inbound_wamid=request_id,
         )
 
         if reply_text:

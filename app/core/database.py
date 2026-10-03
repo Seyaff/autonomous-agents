@@ -66,14 +66,6 @@ async def ensure_webhook_indexes():
         "received_at", expireAfterSeconds=7 * 24 * 3600, name="ttl_received_at"
     )
     
-    await db["conversation_summaries"].create_index(
-        [("tenant_id", 1), ("customer_phone", 1), ("created_at", -1)],
-        name="tenant_phone_created_idx"
-    )
-    await db["conversation_summaries"].create_index(
-        "thread_id", unique=True, name="uniq_thread_id"
-    )
-    
     await db["orders"].create_index(
         [("tenant_id", 1), ("created_at", -1)], name="tenant_orders_by_date"
     )
@@ -84,7 +76,9 @@ async def ensure_webhook_indexes():
         [("tenant_id", 1), ("sender_phone", 1), ("created_at", -1)], name="tenant_customer_messages_recent"
     )
     print("[webhook] processed_messages indexes ensured.")
-    print("[memory] conversation_summaries indexes ensured.")
+    from memory.facts import ensure_fact_indexes
+    await ensure_fact_indexes(db)
+    print("[memory] customer_facts indexes ensured.")
 
 
 async def verify_webhook_indexes():

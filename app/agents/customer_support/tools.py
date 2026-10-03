@@ -12,7 +12,6 @@ from services.conversation_state import broadcast_conversation_updated
 from services.order_service import compute_totals, initial_status_entry
 from core.settings import settings
 from core.events import broadcast_order_update
-from memory.customer_memory import update_customer_profile
 from services.pdf_ingestion import embedding_model
 from langchain_pinecone import PineconeVectorStore
 
@@ -107,20 +106,6 @@ async def create_order_tool(
 
         if result.inserted_id:
             order_document["_id"] = str(result.inserted_id)
-            # Update customer's long-term profile
-            try:
-                await update_customer_profile(
-                    tenant_id=tenant_id,
-                    customer_phone=customer_phone,
-                    name=customer_name,
-                    delivery_address=delivery_address,
-                    notes=customer_notes,
-                    order_amount=float(total_amount),
-                    favorite_items=item_names,
-                )
-            except Exception as pe:
-                logger.warning(f"Could not update customer profile: {pe}")
-
             # Push real-time event to owner dashboard
             try:
                 await broadcast_order_update(

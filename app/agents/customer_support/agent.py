@@ -1,22 +1,21 @@
-import os
-from dotenv import load_dotenv
 import logging
 import asyncio
 import weakref
 from typing import Any, Dict, List
 
+from dotenv import load_dotenv
 from langchain_core.messages import (
-    SystemMessage,
-    HumanMessage,
     AIMessage,
     BaseMessage,
+    HumanMessage,
+    SystemMessage,
 )
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.state import CompiledStateGraph
 
 from core.llm import get_chat_model
-from memory.mongo_checkpointer import MongoDBCkptSaver
-from memory.context_builder import build_agent_context, trigger_summarization_if_needed
+from memory.context_builder import build_agent_context, remember_exchange
+from agents.customer_support.prompt import compile_customer_support_prompt
 from agents.customer_support.tools import (
     search_uploaded_documents,
     create_order_tool,
@@ -45,11 +44,12 @@ tools = [
     escalate_to_owner,
 ]
 
-_agent_cache: Dict[str, CompiledStateGraph] = {}
+_agent: CompiledStateGraph | None = None
 
 
 # ---------------------------------------------------------------------------
-# Per-thread locks (self-cleaning, no unbounded defaultdict)
+# Per-customer locks, so two quick messages from one customer are answered in
+# order rather than racing each other. Self-cleaning.
 # ---------------------------------------------------------------------------
 _thread_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = (
     weakref.WeakValueDictionary()
@@ -57,33 +57,25 @@ _thread_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = (
 _locks_guard = asyncio.Lock()
 
 
-async def _get_thread_lock(thread_id: str) -> asyncio.Lock:
+async def _get_thread_lock(key: str) -> asyncio.Lock:
     async with _locks_guard:
-        lock = _thread_locks.get(thread_id)
+        lock = _thread_locks.get(key)
         if lock is None:
             lock = asyncio.Lock()
-            _thread_locks[thread_id] = lock
+            _thread_locks[key] = lock
         return lock
 
 
-# ---------------------------------------------------------------------------
-# Agent factory (cached per process) — MongoDB checkpointer
-# ---------------------------------------------------------------------------
-def get_customer_support_agent(db: Any) -> CompiledStateGraph:
-    """Returns or compiles the persistent customer support agent backed by MongoDB checkpointer."""
-    if "master" not in _agent_cache:
-        checkpointer = MongoDBCkptSaver(db)
-        _agent_cache["master"] = create_react_agent(
-            model=model,
-            tools=tools,
-            checkpointer=checkpointer,
-        )
-    return _agent_cache["master"]
+def get_customer_support_agent() -> CompiledStateGraph:
+    """One compiled agent for the process. It has no checkpointer on purpose:
+    history is rebuilt from the messages collection every turn, so nothing is
+    stored twice and the staff's replies are always visible to it."""
+    global _agent
+    if _agent is None:
+        _agent = create_react_agent(model=model, tools=tools)
+    return _agent
 
 
-# ---------------------------------------------------------------------------
-# Reply extraction helper
-# ---------------------------------------------------------------------------
 def _extract_latest_ai_text(messages: List[BaseMessage]) -> str:
     for msg in reversed(messages):
         if not isinstance(msg, AIMessage) or not msg.content:
@@ -99,67 +91,53 @@ def _extract_latest_ai_text(messages: List[BaseMessage]) -> str:
     return ""
 
 
-# ---------------------------------------------------------------------------
-# Main turn handler
-# ---------------------------------------------------------------------------
 async def run_customer_support_turn(
     db: Any,
     tenant: Dict[str, Any],
     customer_phone: str,
     user_message: str,
+    inbound_wamid: str | None = None,
 ) -> str:
-    """
-    Executes a turn of customer support with hierarchical memory:
-    - System prompt with static config + customer profile + conversation summary
-    - Recent messages (last 6 turns) passed via state
-    - Automatic summarization every 6 turns or when token threshold exceeded
+    """Answers one customer message.
+
+    Each turn is built from stored data: the customer card (orders, favourites,
+    durable facts) and the recent window of this conversation. After the reply,
+    durable facts from the exchange are remembered in the background.
     """
     tenant_id = tenant.get("tenant_id", "default_tenant")
-    thread_id = f"{tenant_id}:{customer_phone}"
+    conversation = await db["conversations"].find_one(
+        {"tenant_id": tenant_id, "customer_phone": customer_phone}, {"conversation_id": 1}
+    )
+    conversation_id = (conversation or {}).get("conversation_id") or f"conv_{tenant_id}_{customer_phone}"
 
-    lock = await _get_thread_lock(thread_id)
+    lock = await _get_thread_lock(f"{tenant_id}:{customer_phone}")
 
     async with lock:
-        context = await build_agent_context(tenant, customer_phone, thread_id, db)
+        context = await build_agent_context(
+            db, tenant_id, customer_phone, conversation_id, exclude_wamid=inbound_wamid
+        )
+
+        system_prompt = compile_customer_support_prompt(tenant, context["customer_context"])
+        messages: List[BaseMessage] = [
+            SystemMessage(content=system_prompt),
+            *context["window"],
+            HumanMessage(content=user_message),
+        ]
 
         config = {
             "configurable": {
-                "thread_id": thread_id,
                 "tenant_id": tenant_id,
                 "customer_phone": customer_phone,
             },
             "run_name": f"whatsapp-turn-{customer_phone}",
             "tags": [tenant_id, "whatsapp", "production"],
-            "metadata": {
-                "tenant_id": tenant_id,
-                "customer_phone": customer_phone,
-                "thread_id": thread_id,
-            },
+            "metadata": {"tenant_id": tenant_id, "customer_phone": customer_phone},
         }
 
-        agent = get_customer_support_agent(db)
-
-        current_state = await agent.aget_state(config)
-        existing_messages: List[BaseMessage] = (
-            current_state.values.get("messages", []) if current_state else []
-        )
-
-        clean_history = [
-            m for m in existing_messages if not isinstance(m, SystemMessage)
-        ]
-
-        recent_messages = context.recent_messages
-
-        exec_messages: List[BaseMessage] = (
-            [SystemMessage(content=context.system_prompt)]
-            + [HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"]) for m in recent_messages]
-            + [HumanMessage(content=user_message)]
-        )
-
         try:
-            result = await agent.ainvoke({"messages": exec_messages}, config=config)
+            result = await get_customer_support_agent().ainvoke({"messages": messages}, config=config)
         except Exception as e:
-            logger.exception(f"Agent invocation failed for thread {thread_id}: {e}")
+            logger.exception(f"Agent invocation failed for {tenant_id}:{customer_phone}: {e}")
             return (
                 "Maazrat, abhi technical masla aa gaya hai. "
                 "Thori dair baad dobara koshish karein."
@@ -167,11 +145,18 @@ async def run_customer_support_turn(
 
         reply_text = _extract_latest_ai_text(result.get("messages", []))
 
-        asyncio.create_task(
-            trigger_summarization_if_needed(tenant_id, customer_phone, thread_id)
+    asyncio.create_task(
+        remember_exchange(
+            db,
+            tenant_id,
+            customer_phone,
+            customer_text=user_message,
+            agent_text=reply_text,
+            source_wamid=inbound_wamid,
         )
+    )
 
-        return reply_text or (
-            "Ji, aap ka paigham mosool ho gaya hai. "
-            "Hum aap ki mazeed kya madad kar sakte hain?"
-        )
+    return reply_text or (
+        "Ji, aap ka paigham mosool ho gaya hai. "
+        "Hum aap ki mazeed kya madad kar sakte hain?"
+    )
