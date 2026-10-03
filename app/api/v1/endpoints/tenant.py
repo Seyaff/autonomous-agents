@@ -1,6 +1,7 @@
 import uuid
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Literal, Optional, List, Dict, Any
 
 import httpx
@@ -57,11 +58,16 @@ class TenantUpdatePayload(BaseModel):
     currency: Optional[str] = None
     flat_delivery_fee: Optional[float] = None
     avg_prep_time_minutes: Optional[int] = None
+    timezone: Optional[str] = None
     operating_hours: Optional[List[DayHours]] = None
     min_order_amount: Optional[float] = Field(default=None, ge=0)
     delivery_areas: Optional[List[str]] = None
     payment_methods: Optional[List[Literal["cash_on_delivery", "card_on_delivery", "bank_transfer"]]] = None
     order_types: Optional[List[Literal["delivery", "takeaway", "dine_in"]]] = None
+
+
+class AgentTogglePayload(BaseModel):
+    enabled: bool
 
 
 class SetupActionPayload(BaseModel):
@@ -87,6 +93,7 @@ class TenantPublic(BaseModel):
     whatsapp_business_id: Optional[str] = None
     phone_number_id: Optional[str] = None
     whatsapp_connected: bool = False
+    agent_enabled: bool = True
     display_phone_number: Optional[str] = None
     country: Optional[str] = None
     city: Optional[str] = None
@@ -232,6 +239,12 @@ async def update_current_tenant(
         update_fields["address"] = payload.address
     if payload.currency:
         update_fields["currency"] = payload.currency
+    if payload.timezone:
+        try:
+            ZoneInfo(payload.timezone)
+        except ZoneInfoNotFoundError:
+            raise HTTPException(status_code=400, detail=f"Unknown timezone: {payload.timezone}")
+        update_fields["timezone"] = payload.timezone
 
     if payload.flat_delivery_fee is not None:
         update_fields["delivery_settings.flat_delivery_fee"] = payload.flat_delivery_fee
@@ -273,6 +286,25 @@ async def update_agent_settings(
         {"$set": {"agent_settings": payload.model_dump(), "updated_at": datetime.now(timezone.utc)}},
     )
     return payload
+
+
+@tenant_routes.patch("/current/agent")
+async def set_agent_enabled(
+    payload: AgentTogglePayload,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """Pauses or resumes the customer-support agent for the whole restaurant.
+    While paused, customers still reach the inbox, and the owner replies by hand."""
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+
+    await db.tenants.update_one(
+        {"tenant_id": tenant_id},
+        {"$set": {"agent_enabled": payload.enabled, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return {"status": "success", "agent_enabled": payload.enabled}
 
 
 # Setup progress. The finish route is declared before the step route, so the

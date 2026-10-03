@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from core.database import get_database
 from middlewares.auth_middleware import require_owner
 from services.knowledge_ingestion import (
+    delete_knowledge_vectors,
     ingest_pdf_bytes_for_tenant,
     ingest_text_knowledge_for_tenant,
     search_tenant_knowledge
@@ -128,10 +129,19 @@ async def delete_tenant_knowledge(
 ):
     """Deletes a knowledge document reference from MongoDB."""
     tenant_id = current_user.get("active_tenant_id")
-    res = await db["tenant_knowledge"].delete_one({"doc_id": doc_id, "tenant_id": tenant_id})
-    if res.deleted_count == 0:
+    doc = await db["tenant_knowledge"].find_one({"doc_id": doc_id, "tenant_id": tenant_id})
+    if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
 
+    # Vectors first. If Pinecone fails, keep the record so the delete can be retried;
+    # otherwise the agent would keep answering from a menu the owner removed.
+    try:
+        await delete_knowledge_vectors(tenant_id, doc.get("vector_ids") or [])
+    except Exception as e:
+        logger.error(f"Could not delete vectors for doc {doc_id} of tenant {tenant_id}: {e}")
+        raise HTTPException(status_code=502, detail="Could not remove this document from the knowledge base. Try again.")
+
+    await db["tenant_knowledge"].delete_one({"doc_id": doc_id, "tenant_id": tenant_id})
     return {"status": "success", "message": f"Document '{doc_id}' deleted."}
 
 
