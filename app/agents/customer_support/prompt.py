@@ -1,7 +1,10 @@
+import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-from core.setup_state import AgentSettings, hours_status
+from core.setup_state import AgentSettings, hours_status, normalize_hours
+
+logger = logging.getLogger(__name__)
 
 DAY_NAMES = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"}
 
@@ -60,7 +63,18 @@ def _greeting(agent: AgentSettings, business_name: str) -> str:
 
 
 def _hours_block(tenant_info: Dict[str, Any], currency: str, now: Optional[datetime]) -> str:
-    hours: List[Dict[str, Any]] = tenant_info.get("operating_hours") or []
+    try:
+        return _hours_block_checked(tenant_info, currency, now)
+    except Exception:
+        # Never let a bad hours record stop the agent from replying.
+        logger.exception("Could not build the hours block; the agent will run without it")
+        return ("==================== HOURS, DELIVERY & PAYMENT ====================\n"
+                "- Opening hours could not be read right now. Don't promise delivery times; ask the restaurant to confirm.\n"
+                "============================================================")
+
+
+def _hours_block_checked(tenant_info: Dict[str, Any], currency: str, now: Optional[datetime]) -> str:
+    hours: List[Dict[str, Any]] = normalize_hours(tenant_info.get("operating_hours") or [])
     tz = tenant_info.get("timezone") or "UTC"
     lines = ["==================== HOURS, DELIVERY & PAYMENT ===================="]
 

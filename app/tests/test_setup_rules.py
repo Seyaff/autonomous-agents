@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from agents.customer_support.prompt import compile_customer_support_prompt
 from core.setup_state import (
+    normalize_hours,
     AgentSettings,
     DayHours,
     SetupState,
@@ -163,6 +164,27 @@ def test_after_midnight_session_closed_once_it_ends():
     hours[4] = {"day": "fri", "open": "18:00", "close": "02:00", "closed": False}
     status = hours_status(hours, "Asia/Karachi", karachi_utc(5, 3))
     assert status["open_now"] is False
+
+
+def test_older_hours_format_still_works():
+    # Tenants created before the setup change stored hours as Monday / open_time / is_closed.
+    legacy = [{"day": "Monday", "open_time": "12:00", "close_time": "23:30", "is_closed": False}]
+    legacy += [{"day": d, "open_time": "09:00", "close_time": "22:00", "is_closed": False}
+               for d in ["Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]]
+    assert hours_status(legacy, "Asia/Karachi", karachi_utc(0, 14))["open_now"] is True
+    assert hours_status(legacy, "Asia/Karachi", karachi_utc(0, 9))["open_now"] is False
+
+
+def test_malformed_hours_entries_are_skipped_not_raised():
+    bad = [{"day": "Funday", "open": "12:00", "close": "23:00"}, {"day": "mon", "open": "xx", "close": "23:00"}]
+    assert normalize_hours(bad) == []
+    assert hours_status(bad, "Asia/Karachi")["open_now"] is True
+
+
+def test_prompt_survives_bad_hours():
+    t = tenant(operating_hours=[{"day": "mon", "open": "bad", "close": "x"}])
+    prompt = compile_customer_support_prompt(t, "")
+    assert "HOURS, DELIVERY & PAYMENT" in prompt
 
 
 def test_no_hours_means_open():

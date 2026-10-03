@@ -138,16 +138,38 @@ def _minutes(hhmm: str) -> int:
     return int(hours) * 60 + int(minutes)
 
 
+def normalize_hours(hours: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Reads hours in the current shape and the older one (Monday, open_time,
+    close_time, is_closed). Entries that can't be read are skipped, never raised,
+    so a bad hours record can't stop the agent from replying."""
+    out: List[Dict[str, Any]] = []
+    for h in hours or []:
+        try:
+            entry = {
+                "day": normalize_day(h.get("day", "")),
+                "open": h.get("open") or h.get("open_time") or "12:00",
+                "close": h.get("close") or h.get("close_time") or "23:30",
+                "closed": bool(h.get("closed", h.get("is_closed", False))),
+            }
+            _minutes(entry["open"])
+            _minutes(entry["close"])
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        out.append(entry)
+    return out
+
+
 def hours_status(hours: List[Dict[str, Any]], tz_name: str, now: Optional[datetime] = None) -> Dict[str, Any]:
     """Is the restaurant open right now?
 
     A closing time earlier than the opening time means the day closes after
     midnight, so that session counts toward the same day's entry.
     """
+    hours = normalize_hours(hours)
     if not hours:
         return {"open_now": True, "reason": "no hours set"}
 
-    by_day = {normalize_day(h["day"]): h for h in hours}
+    by_day = {h["day"]: h for h in hours}
     local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(tz_name))
     minute = local.hour * 60 + local.minute
     today = DAYS[local.weekday()]
