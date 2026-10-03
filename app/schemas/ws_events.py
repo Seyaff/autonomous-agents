@@ -14,6 +14,7 @@ WSEventType = Literal[
     "report.weekly_generated",
     "agent.step",
     "agent.reply",
+    "alert.new",
 ]
 
 
