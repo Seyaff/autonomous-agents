@@ -143,6 +143,7 @@ export const saveAgentSettings = async (payload: AgentSettingsPayload) => {
 export const uploadMenuPdf = async (file: File) => {
   const form = new FormData()
   form.append("file", file)
-  const res = await API.post("/tenant/upload-menu-pdf", form)
+  // Reading a long menu takes minutes on a rate-limited model, so this call waits longer than the default 30s.
+  const res = await API.post("/tenant/upload-menu-pdf", form, { timeout: 240_000 })
   return res.data as { items_found: number; items_error?: string; title?: string }
 }
