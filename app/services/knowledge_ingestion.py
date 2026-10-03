@@ -122,6 +122,7 @@ async def ingest_pdf_bytes_for_tenant(
         "status": "success",
         "doc_id": doc_id,
         "title": filename,
+        "full_text": "\n\n".join(d.page_content for d in raw_documents),
         "chunks_indexed": len(chunks),
         "message": f"Successfully indexed '{filename}' ({len(chunks)} chunks) into Pinecone namespace '{tenant_id}'."
     }

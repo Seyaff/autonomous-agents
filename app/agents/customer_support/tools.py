@@ -10,6 +10,7 @@ from core.database import get_database
 from repositories.inbox_repo import inbox_repo
 from services.conversation_state import broadcast_conversation_updated
 from services.order_service import compute_totals, initial_status_entry
+from core.setup_state import hours_status
 from core.settings import settings
 from core.events import broadcast_order_update
 from services.pdf_ingestion import embedding_model
@@ -64,6 +65,18 @@ async def create_order_tool(
         tenant_doc = await db["tenants"].find_one({"tenant_id": tenant_id})
         currency = (tenant_doc or {}).get("currency") or "USD"
 
+        # Hard rule, not just prompt guidance: no orders while the restaurant is shut.
+        open_state = hours_status(
+            (tenant_doc or {}).get("operating_hours") or [],
+            (tenant_doc or {}).get("timezone") or "UTC",
+        )
+        if not open_state["open_now"]:
+            opens = open_state.get("opens_next") or "later"
+            return (
+                f"The restaurant is closed right now. Next opening: {opens}. "
+                "Don't place the order. Tell the customer when we open."
+            )
+
         formatted_items = []
         item_names = []
         for item in items:
@@ -79,6 +92,24 @@ async def create_order_tool(
             item_names.append(name)
 
         subtotal, delivery_fee, total_amount, eta_minutes = compute_totals(formatted_items, tenant_doc)
+
+        minimum = float((tenant_doc or {}).get("min_order_amount") or 0)
+        if minimum and subtotal < minimum:
+            return (
+                f"Order is below the minimum of {currency} {minimum:.0f} "
+                f"(subtotal {currency} {subtotal:.2f}). Ask the customer to add items."
+            )
+
+        if configurable.get("test_mode"):
+            # Test chat: show what would happen, change nothing.
+            test_items = ", ".join(f"{i['quantity']}x {i['name']}" for i in formatted_items)
+            return (
+                f"Order placed. Reference ID: TEST-{uuid.uuid4().hex[:6].upper()} (test chat, not saved).\n"
+                f"Items: {test_items}\n"
+                f"Subtotal: {currency} {subtotal:.2f}, Delivery: {currency} {delivery_fee:.2f}\n"
+                f"Total Amount: {currency} {total_amount:.2f}\n"
+                f"Estimated time: about {eta_minutes} minutes"
+            )
         now = datetime.now(timezone.utc)
         order_document = {
             "order_id": order_id,
@@ -217,6 +248,9 @@ async def update_order_tool(
         if current_status not in ["pending", "accepted"]:
             return f"Order '{order_id}' cannot be modified because its status is already '{current_status.upper()}'."
 
+        if configurable.get("test_mode"):
+            return f"TEST: order '{order_id}' would be updated. Nothing was changed."
+
         update_fields: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
         if new_delivery_address:
             update_fields["delivery_address"] = new_delivery_address
@@ -270,6 +304,9 @@ async def cancel_order_tool(
         if current_status == "cancelled":
             return f"Order '{order_id}' is already cancelled."
 
+        if configurable.get("test_mode"):
+            return f"TEST: order '{order_id}' would be cancelled. Nothing was changed."
+
         update_fields = {
             "status": "cancelled",
             "cancellation_reason": reason or "Customer requested cancellation",
@@ -313,6 +350,9 @@ async def escalate_to_owner(
     customer_phone = configurable.get("customer_phone")
     if not tenant_id or not customer_phone:
         return "Could not escalate: missing conversation context."
+
+    if configurable.get("test_mode"):
+        return "Escalated to the restaurant. Tell the customer you've passed this to the restaurant."
 
     conversation_id = f"conv_{tenant_id}_{customer_phone}"
     try:

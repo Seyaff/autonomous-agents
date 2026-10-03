@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import weakref
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from langchain_core.messages import (
@@ -9,6 +9,7 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.state import CompiledStateGraph
@@ -24,10 +25,21 @@ from agents.customer_support.tools import (
     cancel_order_tool,
     escalate_to_owner,
 )
-
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+TRACE_SUMMARY_CHARS = 120
+ESCALATION_TOOL = "escalate_to_owner"
+
+FALLBACK_REPLY = (
+    "Ji, aap ka paigham mosool ho gaya hai. "
+    "Hum aap ki mazeed kya madad kar sakte hain?"
+)
+ERROR_REPLY = (
+    "Maazrat, abhi technical masla aa gaya hai. "
+    "Thori dair baad dobara koshish karein."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +60,8 @@ _agent: CompiledStateGraph | None = None
 
 
 # ---------------------------------------------------------------------------
-# Per-customer locks, so two quick messages from one customer are answered in
-# order rather than racing each other. Self-cleaning.
+# Per-conversation locks, so two quick messages from one customer are answered
+# in order rather than racing each other. Self-cleaning.
 # ---------------------------------------------------------------------------
 _thread_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = (
     weakref.WeakValueDictionary()
@@ -68,8 +80,7 @@ async def _get_thread_lock(key: str) -> asyncio.Lock:
 
 def get_customer_support_agent() -> CompiledStateGraph:
     """One compiled agent for the process. It has no checkpointer on purpose:
-    history is rebuilt from the messages collection every turn, so nothing is
-    stored twice and the staff's replies are always visible to it."""
+    history is rebuilt from stored data every turn, so nothing is stored twice."""
     global _agent
     if _agent is None:
         _agent = create_react_agent(model=model, tools=tools)
@@ -91,36 +102,78 @@ def _extract_latest_ai_text(messages: List[BaseMessage]) -> str:
     return ""
 
 
-async def run_customer_support_turn(
+def build_trace(messages: List[BaseMessage]) -> List[Dict[str, Any]]:
+    """Each tool call the agent made this turn, paired with its result."""
+    results = {m.tool_call_id: m.content for m in messages if isinstance(m, ToolMessage)}
+    trace: List[Dict[str, Any]] = []
+    for m in messages:
+        if not isinstance(m, AIMessage):
+            continue
+        for call in m.tool_calls or []:
+            content = str(results.get(call.get("id"), ""))
+            trace.append({
+                "tool": call.get("name", ""),
+                "args": call.get("args", {}),
+                "result_summary": content[:TRACE_SUMMARY_CHARS],
+            })
+    return trace
+
+
+def _escalated(trace: List[Dict[str, Any]]) -> bool:
+    return any(
+        t["tool"] == ESCALATION_TOOL and not t["result_summary"].startswith("Could not")
+        for t in trace
+    )
+
+
+async def run_agent_turn(
     db: Any,
     tenant: Dict[str, Any],
     customer_phone: str,
     user_message: str,
-    inbound_wamid: str | None = None,
-) -> str:
-    """Answers one customer message.
+    inbound_wamid: Optional[str] = None,
+    test_mode: bool = False,
+    test_history: Optional[List[BaseMessage]] = None,
+) -> Dict[str, Any]:
+    """Answers one message and reports what happened.
 
-    Each turn is built from stored data: the customer card (orders, favourites,
-    durable facts) and the recent window of this conversation. After the reply,
-    durable facts from the exchange are remembered in the background.
+    Returns {reply, trace, escalated}. The trace lists each tool call with its result.
+
+    Normal mode builds context from stored data (customer card, recent messages),
+    then remembers durable facts after the reply.
+
+    Test mode (the owner's test chat) uses only `test_history` as context. It
+    skips memory, usage metering and fact extraction, and the tools change nothing.
     """
     tenant_id = tenant.get("tenant_id", "default_tenant")
-    conversation = await db["conversations"].find_one(
-        {"tenant_id": tenant_id, "customer_phone": customer_phone}, {"conversation_id": 1}
-    )
-    conversation_id = (conversation or {}).get("conversation_id") or f"conv_{tenant_id}_{customer_phone}"
 
-    lock = await _get_thread_lock(f"{tenant_id}:{customer_phone}")
-
-    async with lock:
+    if test_mode:
+        conversation_id = None
+        customer_context = (
+            "TEST CHAT: the owner is testing you. No real customer, no customer memory, "
+            "and nothing is saved or sent."
+        )
+        window = list(test_history or [])
+        lock_key = f"test:{tenant_id}:{customer_phone}"
+    else:
+        conversation = await db["conversations"].find_one(
+            {"tenant_id": tenant_id, "customer_phone": customer_phone}, {"conversation_id": 1}
+        )
+        conversation_id = (conversation or {}).get("conversation_id") or f"conv_{tenant_id}_{customer_phone}"
         context = await build_agent_context(
             db, tenant_id, customer_phone, conversation_id, exclude_wamid=inbound_wamid
         )
+        customer_context = context["customer_context"]
+        window = context["window"]
+        lock_key = f"{tenant_id}:{customer_phone}"
 
-        system_prompt = compile_customer_support_prompt(tenant, context["customer_context"])
+    lock = await _get_thread_lock(lock_key)
+
+    async with lock:
+        system_prompt = compile_customer_support_prompt(tenant, customer_context)
         messages: List[BaseMessage] = [
             SystemMessage(content=system_prompt),
-            *context["window"],
+            *window,
             HumanMessage(content=user_message),
         ]
 
@@ -128,9 +181,10 @@ async def run_customer_support_turn(
             "configurable": {
                 "tenant_id": tenant_id,
                 "customer_phone": customer_phone,
+                "test_mode": test_mode,
             },
-            "run_name": f"whatsapp-turn-{customer_phone}",
-            "tags": [tenant_id, "whatsapp", "production"],
+            "run_name": f"{'test-chat' if test_mode else 'whatsapp-turn'}-{customer_phone}",
+            "tags": [tenant_id, "test" if test_mode else "whatsapp"],
             "metadata": {"tenant_id": tenant_id, "customer_phone": customer_phone},
         }
 
@@ -138,25 +192,37 @@ async def run_customer_support_turn(
             result = await get_customer_support_agent().ainvoke({"messages": messages}, config=config)
         except Exception as e:
             logger.exception(f"Agent invocation failed for {tenant_id}:{customer_phone}: {e}")
-            return (
-                "Maazrat, abhi technical masla aa gaya hai. "
-                "Thori dair baad dobara koshish karein."
+            return {"reply": ERROR_REPLY, "trace": [], "escalated": False}
+
+        all_messages = result.get("messages", [])
+        new_messages = all_messages[len(messages):]
+        reply_text = _extract_latest_ai_text(all_messages) or FALLBACK_REPLY
+        trace = build_trace(new_messages)
+
+    if not test_mode:
+        asyncio.create_task(
+            remember_exchange(
+                db,
+                tenant_id,
+                customer_phone,
+                customer_text=user_message,
+                agent_text=reply_text,
+                source_wamid=inbound_wamid,
             )
-
-        reply_text = _extract_latest_ai_text(result.get("messages", []))
-
-    asyncio.create_task(
-        remember_exchange(
-            db,
-            tenant_id,
-            customer_phone,
-            customer_text=user_message,
-            agent_text=reply_text,
-            source_wamid=inbound_wamid,
         )
-    )
 
-    return reply_text or (
-        "Ji, aap ka paigham mosool ho gaya hai. "
-        "Hum aap ki mazeed kya madad kar sakte hain?"
+    return {"reply": reply_text, "trace": trace, "escalated": _escalated(trace)}
+
+
+async def run_customer_support_turn(
+    db: Any,
+    tenant: Dict[str, Any],
+    customer_phone: str,
+    user_message: str,
+    inbound_wamid: str | None = None,
+) -> str:
+    """WhatsApp entry point: returns only the reply text."""
+    turn = await run_agent_turn(
+        db, tenant, customer_phone, user_message, inbound_wamid=inbound_wamid
     )
+    return turn["reply"]
