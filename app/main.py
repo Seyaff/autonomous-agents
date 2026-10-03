@@ -48,11 +48,30 @@ async def lifespan(app: FastAPI):
     # Connect Redis in background (non-blocking for health checks)
     import asyncio
     asyncio.create_task(connect_redis_database_safe())
-    
+    billing_task = asyncio.create_task(billing_scheduler())
+
     yield
     # Shutdown
+    billing_task.cancel()
     await close_redis_connection()
     await close_mongo_connection()
+
+
+async def billing_scheduler():
+    """Runs the daily billing job: renewals, overdue invoices and cancellations."""
+    import asyncio
+    import logging
+    logger = logging.getLogger(__name__)
+    from core.database import get_database
+    from services.renewals import run_billing_jobs
+
+    await asyncio.sleep(120)  # let startup finish first
+    while True:
+        try:
+            await run_billing_jobs(get_database())
+        except Exception as e:
+            logger.exception(f"[billing] daily job failed: {e}")
+        await asyncio.sleep(24 * 60 * 60)
 
 
 async def connect_redis_database_safe():

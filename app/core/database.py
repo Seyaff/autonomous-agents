@@ -31,8 +31,20 @@ async def connect_to_mongo():
     db_name = settings.DATABASE_NAME
 
     try:
-        db_container.client = AsyncMongoClient(mongo_uri)
-        await db_container.client.admin.command("ping")
+        # Fail fast: a request waits at most this long for the database before it errors,
+        # instead of hanging and leaving the app spinning for the whole driver default.
+        db_container.client = AsyncMongoClient(
+            mongo_uri, serverSelectionTimeoutMS=10000, connectTimeoutMS=10000
+        )
+        # Startup retries a few times, so a slow moment doesn't keep the server down.
+        for attempt in range(3):
+            try:
+                await db_container.client.admin.command("ping")
+                break
+            except PyMongoError:
+                if attempt == 2:
+                    raise
+                print(f"MongoDB not reachable yet (attempt {attempt + 1}), retrying.")
         db_container.db = db_container.client[db_name]
         collection_list = await db_container.db.list_collection_names()
         print(f"collections : {collection_list}")
