@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import {
   BarChart3Icon,
   BookOpenIcon,
+  CreditCardIcon,
   UsersIcon,
   HomeIcon,
   InboxIcon,
@@ -51,6 +52,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     { title: "Menu knowledge", url: "/dashboard/menu", icon: <BookOpenIcon /> },
     { title: "Customers", url: "/dashboard/customers", icon: <UsersIcon /> },
     { title: "Reports", url: "/dashboard/reports", icon: <BarChart3Icon /> },
+    { title: "Billing", url: "/dashboard/billing", icon: <CreditCardIcon /> },
     { title: "Settings", url: "/dashboard/settings", icon: <SettingsIcon /> },
   ]
 

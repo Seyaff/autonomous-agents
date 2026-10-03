@@ -29,6 +29,7 @@ from core.setup_state import (
     setup_of,
     validate_action,
 )
+from services.billing import new_subscription
 from services.menu_extraction import extract_menu_items, replace_menu_items
 from services.menu_jobs import MENU_JOBS, active_job, create_job, mark_stale_jobs, public, start_job
 from core.secrets import protect
@@ -177,6 +178,7 @@ async def create_tenant(
             "flat_delivery_fee": 0.0,
             "avg_prep_time_minutes": 30,
         },
+        "subscription": new_subscription(),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
