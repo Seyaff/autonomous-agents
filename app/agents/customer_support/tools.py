@@ -60,6 +60,9 @@ async def create_order_tool(
         db = get_database()
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
 
+        tenant_doc = await db["tenants"].find_one({"tenant_id": tenant_id})
+        currency = (tenant_doc or {}).get("currency") or "USD"
+
         formatted_items = []
         item_names = []
         for item in items:
@@ -122,7 +125,7 @@ async def create_order_tool(
             return (
                 f"Order placed successfully! Reference ID: {order_id}.\n"
                 f"Items: {items_summary}\n"
-                f"Total Amount: ${total_amount:.2f}\n"
+                f"Total Amount: {currency} {total_amount:.2f}\n"
                 f"Delivery Address: {delivery_address}\n"
                 f"Payment Method: {payment_method.upper()}\n"
                 f"Status: PENDING confirmation by the restaurant."

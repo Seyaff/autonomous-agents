@@ -48,6 +48,32 @@ class TenantUpdatePayload(BaseModel):
     avg_prep_time_minutes: Optional[int] = None
 
 
+class TenantPublic(BaseModel):
+    """Allow-list of tenant fields safe to send to the browser.
+
+    `GET /tenant/current` used to return the raw Mongo document, which
+    includes `whatsapp_access_token` — every logged-in owner's browser was
+    receiving their WhatsApp token in the response body. Never add a secret
+    field (tokens, API keys) to this model.
+    """
+
+    tenant_id: str
+    tenant_slug: Optional[str] = None
+    business_name: str
+    business_phone: Optional[str] = None
+    address: Optional[str] = None
+    currency: str = "USD"
+    timezone: str = "UTC"
+    whatsapp_business_id: Optional[str] = None
+    phone_number_id: Optional[str] = None
+    whatsapp_connected: bool = False
+    display_phone_number: Optional[str] = None
+    operating_hours: List[Any] = Field(default_factory=list)
+    delivery_settings: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 # ---------------------------------------------------------------------------
 # Create tenant
 # ---------------------------------------------------------------------------
@@ -115,7 +141,7 @@ async def create_tenant(
 # ---------------------------------------------------------------------------
 # Get / update current tenant
 # ---------------------------------------------------------------------------
-@tenant_routes.get("/current")
+@tenant_routes.get("/current", response_model=TenantPublic)
 async def get_current_tenant(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
@@ -132,9 +158,7 @@ async def get_current_tenant(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant record not found.")
 
-    if "_id" in tenant:
-        tenant["_id"] = str(tenant["_id"])
-    return tenant
+    return TenantPublic(**tenant)
 
 
 @tenant_routes.patch("/current")

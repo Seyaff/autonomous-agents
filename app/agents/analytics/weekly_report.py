@@ -34,7 +34,7 @@ async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
     prior_window_query = {
         "tenant_id": tenant_id,
         "created_at": {"$gte": fourteen_days_ago, "$lt": seven_days_ago},
-        "status": {"$ne": "cancelled"},
+        "status": {"$nin": ["cancelled", "pending"]},
     }
     prior_cursor = db["orders"].find(prior_window_query, {"total_amount": 1})
     prior_orders = await prior_cursor.to_list(length=5000)
@@ -63,7 +63,9 @@ async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
 
         if st == "cancelled":
             cancelled_orders += 1
-        else:
+        elif st != "pending":
+            # A pending order hasn't been accepted by the restaurant yet —
+            # not real revenue any more than a cancelled one is.
             total_revenue += amt
 
         if st == "delivered":

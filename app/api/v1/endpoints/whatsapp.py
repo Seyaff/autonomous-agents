@@ -113,6 +113,7 @@ async def handle_text_turn(
     tenant_token: Optional[str],
     tenant_phone_id: Optional[str],
     request_id: str = "bg",
+    customer_name: str = "",
 ):
     """Background task for an inbound text message."""
     try:
@@ -127,7 +128,7 @@ async def handle_text_turn(
             content=user_payload,
             message_type="text",
             wamid=request_id,  # using request_id as fallback, actual wamid would come from webhook
-            customer_name=tenant.get("business_name", ""),
+            customer_name=customer_name,
         )
 
         reply_text = await run_customer_support_turn(
@@ -208,9 +209,11 @@ async def receive_meta_webhook(
         value = changes.get("value", {})
         metadata = value.get("metadata", {})
         messages = value.get("messages", [])
+        contacts = value.get("contacts", [])
 
         inbound_phone_id = metadata.get("phone_number_id")
         display_number = metadata.get("display_phone_number")
+        customer_name = (contacts[0].get("profile", {}).get("name", "") if contacts else "")
     except (IndexError, AttributeError, KeyError) as e:
         logger.error(f"[{request_id}] Error parsing webhook payload: {e}")
         return {"status": "success"}  # always ACK Meta
@@ -224,7 +227,22 @@ async def receive_meta_webhook(
             {"display_phone_number": display_number}
         )
     if not tenant:
-        tenant = await database["tenants"].find_one({})
+        # No phone-based match (expected during testing, when tenants are
+        # still using the shared env WhatsApp credentials rather than their
+        # own connected number). Only safe to guess when there is exactly
+        # one tenant in the whole system — with more than one, guessing
+        # would answer a customer as the wrong restaurant and leak their
+        # message into the wrong owner's inbox.
+        tenant_count = await database["tenants"].count_documents({})
+        if tenant_count == 1:
+            tenant = await database["tenants"].find_one({})
+        else:
+            logger.warning(
+                f"[{request_id}] Could not match inbound WhatsApp message to a tenant "
+                f"(phone_number_id={inbound_phone_id}, display_number={display_number}) "
+                f"and {tenant_count} tenants exist — refusing to guess which one to answer as."
+            )
+            return {"status": "no_tenant_matched"}
 
     if not tenant:
         logger.warning(f"[{request_id}] No tenant configured in database for inbound WhatsApp message.")
@@ -299,6 +317,7 @@ async def receive_meta_webhook(
                 tenant_token=tenant_token,
                 tenant_phone_id=tenant_phone_id,
                 request_id=request_id,
+                customer_name=customer_name,
             )
 
     elif msg_type == "audio":

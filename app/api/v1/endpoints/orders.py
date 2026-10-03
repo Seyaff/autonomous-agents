@@ -98,7 +98,10 @@ async def get_orders_summary(
         c = r["count"]
         rev = r.get("revenue") or 0.0  # ✅ guard: $sum returns None if no docs match
         total_orders += c
-        if st not in ["cancelled"]:
+        # Revenue counts confirmed-onward orders only — a "pending" order
+        # hasn't even been accepted by the restaurant yet, so it isn't
+        # real revenue any more than a cancelled one is.
+        if st not in ["cancelled", "pending"]:
             total_revenue += rev
         if st in ["pending", "accepted", "preparing"]:
             pending_count += c
