@@ -84,7 +84,9 @@ export function HoursStep() {
   const currency = saved?.currency ?? "USD"
 
   const paymentError = shownPayments.length === 0 ? "Pick at least one payment method." : null
-  const areaError = deliveryOn && shownAreas.length === 0 ? "Add at least one delivery area." : null
+  // An area typed but not yet added with Enter still counts when the owner continues.
+  const effectiveAreas = areaDraft.trim() ? [...shownAreas, areaDraft.trim()].slice(0, 50) : shownAreas
+  const areaError = deliveryOn && effectiveAreas.length === 0 ? "Add at least one delivery area." : null
 
   function updateRow(index: number, patch: Partial<DayHoursPayload>) {
     setHours(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
@@ -114,13 +116,17 @@ export function HoursStep() {
     }
     setSaving(true)
     setError(null)
+    if (areaDraft.trim()) {
+      setAreas(effectiveAreas)
+      setAreaDraft("")
+    }
     try {
       await updateRestaurant({
         operating_hours: rows,
         flat_delivery_fee: shownFee,
         min_order_amount: shownMin,
         avg_prep_time_minutes: shownPrep,
-        delivery_areas: shownAreas,
+        delivery_areas: effectiveAreas,
         payment_methods: shownPayments,
       })
       await complete.mutateAsync({ step: "hours", action: "complete" })
