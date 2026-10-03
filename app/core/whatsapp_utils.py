@@ -152,3 +152,46 @@ async def download_whatsapp_media(media_id: str, token: Optional[str] = None) ->
             raise ValueError("Could not download file content from WhatsApp servers.")
 
         return download_resp.content
+
+
+async def send_buttons(
+    to_phone: str,
+    body: str,
+    buttons: list,
+    token: Optional[str] = None,
+    phone_number_id: Optional[str] = None,
+) -> SendResult:
+    """Sends a message with up to three tap-able buttons. Each button is {"id", "title"}.
+    The customer's tap comes back to the webhook with the button's id."""
+    auth_token = token or settings.WHATSAPP_TOKEN
+    phone_id = phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_phone,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body[:1024]},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": b["id"][:256], "title": b["title"][:20]}}
+                    for b in buttons[:3]
+                ]
+            },
+        },
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.post(
+                f"{GRAPH}/{phone_id}/messages",
+                json=payload,
+                headers={"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"},
+            )
+        except httpx.RequestError as exc:
+            return SendResult(ok=False, error_message=f"Could not reach WhatsApp: {exc}")
+    if response.status_code in (200, 201):
+        return SendResult(ok=True, status=response.status_code)
+    code, message = _meta_error(response)
+    logger.error(f"Meta WhatsApp buttons error ({response.status_code}): {response.text}")
+    return SendResult(ok=False, status=response.status_code, error_code=code, error_message=message)
