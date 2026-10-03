@@ -73,6 +73,8 @@ export function HoursStep() {
   const [payments, setPayments] = React.useState<PaymentMethod[] | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [attempted, setAttempted] = React.useState(false)
+  const areaInput = React.useRef<HTMLInputElement>(null)
 
   const rows = hours ?? readHours(saved?.operating_hours)
   const shownFee = fee ?? saved?.delivery_settings?.flat_delivery_fee ?? 0
@@ -85,6 +87,9 @@ export function HoursStep() {
 
   const paymentError = shownPayments.length === 0 ? "Pick at least one payment method." : null
   const areaError = deliveryOn && shownAreas.length === 0 ? "Add at least one delivery area." : null
+  // Inline hints appear after the first Continue, so a message isn't shown twice.
+  const inlineAreaError = attempted ? areaError : null
+  const inlinePaymentError = attempted ? paymentError : null
 
   function updateRow(index: number, patch: Partial<DayHoursPayload>) {
     setHours(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
@@ -108,10 +113,14 @@ export function HoursStep() {
   async function save() {
     if (saving) return
     if (paymentError || areaError) {
-      // Show the problem inline on the tab that has it, once.
+      // Say what is missing, put the owner on that tab, and put the cursor in the field.
+      setAttempted(true)
       setTab("delivery")
+      setError(areaError ? "Add at least one delivery area to continue." : paymentError)
+      if (areaError) setTimeout(() => areaInput.current?.focus(), 0)
       return
     }
+    setError(null)
     setSaving(true)
     setError(null)
     try {
@@ -245,6 +254,7 @@ export function HoursStep() {
               ))}
             </div>
             <Input
+              ref={areaInput}
               id="h-area"
               value={areaDraft}
               placeholder="Type an area and press Enter"
@@ -258,7 +268,7 @@ export function HoursStep() {
                 }
               }}
             />
-            {areaError && <p className="text-xs text-destructive">{areaError}</p>}
+            {inlineAreaError && <p className="text-xs text-destructive">{inlineAreaError}</p>}
           </div>
 
           <fieldset className="space-y-2">
@@ -283,7 +293,7 @@ export function HoursStep() {
                 )
               })}
             </div>
-            {paymentError && <p className="text-xs text-destructive">{paymentError}</p>}
+            {inlinePaymentError && <p className="text-xs text-destructive">{inlinePaymentError}</p>}
           </fieldset>
         </TabsContent>
       </Tabs>
