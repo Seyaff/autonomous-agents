@@ -119,6 +119,12 @@ export function MetaEmbeddedSignup({
       const loginResponse = await new Promise<any>((resolve, reject) => {
         window.FB.login(
           (response: any) => {
+            console.log("[meta-signup] FB.login response", {
+              status: response?.status,
+              hasAuthResponse: !!response?.authResponse,
+              hasCode: !!response?.authResponse?.code,
+              keys: Object.keys(response ?? {}),
+            })
             if (response.authResponse) {
               resolve(response)
             } else {
@@ -143,11 +149,16 @@ export function MetaEmbeddedSignup({
         throw new Error("No authorization code received from Meta")
       }
 
+      console.log("[meta-signup] posting to backend", {
+        phone_number_id: phoneNumberIdRef.current,
+        waba_id: wabaIdRef.current,
+      })
       const res = await API.post("/tenant/meta-embedded-signup", {
         code,
         phone_number_id: phoneNumberIdRef.current,
         waba_id: wabaIdRef.current,
       })
+      console.log("[meta-signup] backend response", res.status, res.data)
 
       if (res.data?.status === "success" || res.data?.success === true) {
         toast.success("WhatsApp connected successfully!")
