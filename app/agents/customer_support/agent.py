@@ -15,6 +15,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from core.llm import get_chat_model
 from memory.context_builder import build_agent_context, remember_exchange
+from services.billing import record_agent_reply, tokens_from_messages
 from agents.customer_support.prompt import compile_customer_support_prompt
 from agents.customer_support.tools import (
     search_uploaded_documents,
@@ -144,6 +145,12 @@ async def run_customer_support_turn(
             )
 
         reply_text = _extract_latest_ai_text(result.get("messages", []))
+        await record_agent_reply(
+            db,
+            tenant_id,
+            conversation_id,
+            tokens_from_messages(result.get("messages", [])),
+        )
 
     asyncio.create_task(
         remember_exchange(
