@@ -16,6 +16,15 @@ export interface SetupTenant {
   setup_current_step: string
   whatsapp_connected?: boolean
   display_phone_number?: string | null
+  order_types?: string[]
+  operating_hours?: Array<Record<string, unknown>>
+  delivery_areas?: string[]
+  payment_methods?: string[]
+  min_order_amount?: number
+  delivery_settings?: { flat_delivery_fee?: number; avg_prep_time_minutes?: number }
+  agent_settings?: Partial<AgentSettingsPayload>
+  country?: string | null
+  city?: string | null
 }
 
 export const getSetupTenant = async (): Promise<SetupTenant> => {
@@ -73,4 +82,67 @@ export interface MenuItem {
 export const getMenuItems = async (): Promise<{ items: MenuItem[]; source_filename: string | null }> => {
   const res = await API.get("/tenant/current/menu-items")
   return res.data
+}
+
+export type CountryCode = "PK" | "AE" | "SA" | "GB" | "US"
+export type OrderType = "delivery" | "takeaway" | "dine_in"
+export type PaymentMethod = "cash_on_delivery" | "card_on_delivery" | "bank_transfer"
+
+export interface CreateRestaurantPayload {
+  business_name: string
+  country: CountryCode
+  city?: string
+  order_types: OrderType[]
+}
+
+export const createRestaurant = async (payload: CreateRestaurantPayload) => {
+  const res = await API.post("/tenant/create", payload)
+  return res.data as { tenant_id: string }
+}
+
+export interface DayHoursPayload {
+  day: string
+  open: string
+  close: string
+  closed: boolean
+}
+
+export interface RestaurantUpdatePayload {
+  business_name?: string
+  order_types?: OrderType[]
+  operating_hours?: DayHoursPayload[]
+  flat_delivery_fee?: number
+  min_order_amount?: number
+  avg_prep_time_minutes?: number
+  delivery_areas?: string[]
+  payment_methods?: PaymentMethod[]
+}
+
+export const updateRestaurant = async (payload: RestaurantUpdatePayload) => {
+  const res = await API.patch("/tenant/current", payload)
+  return res.data
+}
+
+export interface AgentSettingsPayload {
+  language: "match" | "en" | "roman_urdu"
+  tone: "warm" | "professional" | "short"
+  greeting: string | null
+  escalate_on: {
+    refund: boolean
+    complaint: boolean
+    human_requested: boolean
+    large_order_over: number | null
+  }
+}
+
+export const saveAgentSettings = async (payload: AgentSettingsPayload) => {
+  const res = await API.patch("/tenant/current/agent-settings", payload)
+  return res.data
+}
+
+export const uploadMenuPdf = async (file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  const res = await API.post("/tenant/upload-menu-pdf", form)
+  return res.data as { items_found: number; items_error?: string; title?: string }
 }
