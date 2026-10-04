@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Building2Icon, ChevronDownIcon } from "lucide-react"
+import Image from "next/image"
+import { ChevronDownIcon } from "lucide-react"
 
 import {
   DropdownMenu,
@@ -56,9 +57,7 @@ export function TenantSwitcher() {
             size="lg"
             className="cursor-default hover:bg-transparent active:bg-transparent"
           >
-            <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-              <Building2Icon className="size-4" />
-            </div>
+            <Image src="/brand/logo-light-1024.png" alt="" width={32} height={32} className="aspect-square size-8 rounded-md" />
             <div className="grid flex-1 text-left leading-tight">
               <span className="truncate text-sm font-semibold">Your Restaurant</span>
               <span className="truncate text-xs text-muted-foreground">
@@ -83,9 +82,7 @@ export function TenantSwitcher() {
               />
             }
           >
-            <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-              <Building2Icon className="size-4" />
-            </div>
+            <Image src="/brand/logo-light-1024.png" alt="" width={32} height={32} className="aspect-square size-8 rounded-md" />
             <div className="grid flex-1 text-left leading-tight">
               <span className="truncate text-sm font-semibold">
                 {current ? (

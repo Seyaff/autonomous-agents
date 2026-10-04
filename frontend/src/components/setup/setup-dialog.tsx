@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 
 import {
@@ -53,6 +54,7 @@ export function SetupDialog({ step, children }: { step: SetupRoute; children: Re
         overlayClassName="bg-black/40 backdrop-blur-sm"
         className={WIDTH[step]}
       >
+        <Image src="/brand/logo-light-1024.png" alt="Siyaf" width={32} height={32} className="size-8 rounded-md" />
         {number !== null && (
           <div className="space-y-2">
             <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
