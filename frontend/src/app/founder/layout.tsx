@@ -14,6 +14,7 @@ export default function FounderLayout({
 
   return (
     <div className="flex min-h-svh flex-col bg-background">
+      <meta name="robots" content="noindex, nofollow" />
       <header className="flex shrink-0 items-center justify-between border-b px-6 py-3">
         <div className="flex items-center gap-2">
           <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
