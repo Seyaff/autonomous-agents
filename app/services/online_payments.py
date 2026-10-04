@@ -55,11 +55,20 @@ class JazzCashProvider:
     def configured(self) -> bool:
         return bool(settings.JAZZCASH_MERCHANT_ID and settings.JAZZCASH_PASSWORD and settings.JAZZCASH_INTEGRITY_SALT)
 
-    async def create_payment_link(self, **_: Any) -> str:
-        raise ProviderNotConfigured("JazzCash request format isn't implemented yet.")
+    async def create_payment_link(self, *, reference: str, **_: Any) -> str:
+        # The customer opens this link. It builds and posts the signed form to JazzCash.
+        return f"{settings.PUBLIC_API_BASE.rstrip('/')}/payments/jazzcash/checkout/{reference}"
 
     def verify_webhook(self, headers: Dict[str, str], body: bytes) -> Dict[str, Any]:
-        raise ProviderNotConfigured("JazzCash signature check isn't implemented yet.")
+        from services import jazzcash
+
+        fields = jazzcash.parse_callback(body)
+        jazzcash.verify_callback(fields, settings.JAZZCASH_INTEGRITY_SALT)
+        return {
+            "reference": fields.get("pp_TxnRefNo", ""),
+            "amount_pkr": int(fields.get("pp_Amount", "0")) // 100,
+            "status": "paid" if fields.get("pp_ResponseCode") == jazzcash.SUCCESS_CODE else "failed",
+        }
 
 
 class EasypaisaProvider:
@@ -182,7 +191,9 @@ async def handle_payment_choice(db, tenant: Dict[str, Any], customer_phone: str,
         await _reply(tenant, customer_phone, "Online payment abhi available nahi. Cash on delivery chunein.")
         return "provider unavailable"
 
-    reference = f"{order_id}-{now.strftime('%H%M%S')}"
+    from services.jazzcash import txn_ref
+
+    reference = txn_ref(order_id, now)
     try:
         link = await provider.create_payment_link(
             reference=reference,
