@@ -1,0 +1,23 @@
+# Runs the backend tests on every pull request and on every push to main.
+# Render deploys on push to main, so a failing test shows here before the deploy goes out.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run tests
+        run: uv run --with pytest python -m pytest tests -q
