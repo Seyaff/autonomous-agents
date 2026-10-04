@@ -16,7 +16,7 @@ export interface User {
 
 export const getUserQuery = async (): Promise<User | null> => {
     try {
-        const response = await API.get<User>("/auth/me")
+        const response = await API.get<User>("/auth/me", { timeout: WAKE_TIMEOUT_MS })
         return response.data
     } catch (error: any) {
         if (error.response?.status === 401) {
@@ -26,13 +26,16 @@ export const getUserQuery = async (): Promise<User | null> => {
     }
 }
 
+// The free backend can take about a minute to wake up, so these calls wait longer than the default timeout.
+const WAKE_TIMEOUT_MS = 90000
+
 export const signupUser = async (email: string, password: string, fullName: string) => {
-    const response = await API.post("/auth/signup", { email, password, full_name: fullName })
+    const response = await API.post("/auth/signup", { email, password, full_name: fullName }, { timeout: WAKE_TIMEOUT_MS })
     return response.data
 }
 
 export const loginUser = async (email: string, password: string) => {
-    const response = await API.post("/auth/login", { email, password })
+    const response = await API.post("/auth/login", { email, password }, { timeout: WAKE_TIMEOUT_MS })
     return response.data
 }
 

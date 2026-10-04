@@ -9,9 +9,9 @@ export const metadata: Metadata = {
 
 export default function TermsOfService() {
   return (
-    <main style={{ maxWidth: "800px", margin: "0 auto", padding: "40px 20px", fontFamily: "sans-serif", color: "#333", lineHeight: "1.6" }}>
+    <main style={{ width: "100%", maxWidth: "800px", margin: "0 auto", padding: "40px 20px", fontFamily: "sans-serif", background: "var(--background)", color: "var(--foreground)", lineHeight: "1.6" }}>
       <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "8px" }}>Terms of Service</h1>
-      <p style={{ color: "#666", fontSize: "0.9rem", marginBottom: "24px" }}>These terms apply to your use of Siyaf.</p>
+      <p style={{ color: "var(--muted-foreground)", fontSize: "0.9rem", marginBottom: "24px" }}>These terms apply to your use of Siyaf.</p>
 
       <section style={{ marginBottom: "24px" }}>
         <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "8px" }}>1. The service</h2>

@@ -9,9 +9,9 @@ export const metadata: Metadata = {
 
 export default function PrivacyPolicy() {
   return (
-    <main style={{ maxWidth: "800px", margin: "0 auto", padding: "40px 20px", fontFamily: "sans-serif", color: "#333", lineHeight: "1.6" }}>
+    <main style={{ width: "100%", maxWidth: "800px", margin: "0 auto", padding: "40px 20px", fontFamily: "sans-serif", background: "var(--background)", color: "var(--foreground)", lineHeight: "1.6" }}>
       <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "8px" }}>Privacy Policy</h1>
-      <p style={{ color: "#666", fontSize: "0.9rem", marginBottom: "24px" }}>Last updated: September 24, 2026</p>
+      <p style={{ color: "var(--muted-foreground)", fontSize: "0.9rem", marginBottom: "24px" }}>Last updated: September 24, 2026</p>
 
       <section style={{ marginBottom: "24px" }}>
         <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "8px" }}>1. Introduction</h2>
@@ -47,7 +47,7 @@ export default function PrivacyPolicy() {
         <p>
           We retain user data only as long as necessary to provide our services. Users can request complete deletion 
           of their personal and messaging data at any time by contacting our support team at{" "}
-          <a href="mailto:oursaasstartup@gmail.com" style={{ color: "#0066cc" }}>oursaasstartup@gmail.com</a>.
+          <a href="mailto:oursaasstartup@gmail.com" style={{ color: "inherit", textDecoration: "underline" }}>oursaasstartup@gmail.com</a>.
         </p>
       </section>
 
@@ -56,7 +56,7 @@ export default function PrivacyPolicy() {
         <p>If you have any questions or requests regarding this Privacy Policy, please contact us at:</p>
         <p style={{ marginTop: "8px" }}>
           <strong>Siyaf Support</strong><br />
-          Email: <a href="mailto:oursaasstartup@gmail.com" style={{ color: "#0066cc" }}>oursaasstartup@gmail.com</a>
+          Email: <a href="mailto:oursaasstartup@gmail.com" style={{ color: "inherit", textDecoration: "underline" }}>oursaasstartup@gmail.com</a>
         </p>
       </section>
     </main>
