@@ -66,3 +66,12 @@ def test_references_are_alphanumeric_and_keep_the_order_id():
     ref = jazzcash.txn_ref("ORD-1A2B", NOW)
     assert ref.isalnum()
     assert "ORD1A2B" in ref
+
+
+def test_payment_links_go_through_the_site_proxy_once():
+    """The Vercel proxy adds /api/v1 itself, so the links must not include it, or the path doubles."""
+    from core.settings import Settings
+
+    base = Settings().PUBLIC_API_BASE
+    assert base.endswith("/api")
+    assert "/v1" not in base

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     EASYPAISA_HASH_KEY: str = ""
     PAYMENT_RETURN_URL: str = ""
     # Where the backend is reachable from the internet (through the Vercel proxy).
-    PUBLIC_API_BASE: str = "https://siyaf.vercel.app/api/v1"
+    PUBLIC_API_BASE: str = "https://siyaf.vercel.app/api"
     JAZZCASH_CHECKOUT_URL: str = "https://sandbox.jazzcash.com.pk/CustomerPortal/transactionmanagement/merchantform/"
 
     # Payments. 'dummy' charges nothing; a real gateway replaces it later.
