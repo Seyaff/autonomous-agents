@@ -17,6 +17,7 @@ from langgraph.graph.state import CompiledStateGraph
 from core.llm import get_chat_model
 from memory.context_builder import build_agent_context, remember_exchange
 from services.billing import record_agent_reply, tokens_from_messages
+from services.availability import sold_out_names
 from services.alerts import raise_alert
 from agents.customer_support.prompt import compile_customer_support_prompt
 from agents.customer_support.tools import (
@@ -172,7 +173,8 @@ async def run_agent_turn(
     lock = await _get_thread_lock(lock_key)
 
     async with lock:
-        system_prompt = compile_customer_support_prompt(tenant, customer_context)
+        sold_out = await sold_out_names(db, tenant)
+        system_prompt = compile_customer_support_prompt({**tenant, "sold_out": sold_out}, customer_context)
         messages: List[BaseMessage] = [
             SystemMessage(content=system_prompt),
             *window,

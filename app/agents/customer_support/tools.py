@@ -12,6 +12,7 @@ from services.conversation_state import broadcast_conversation_updated
 from services.alerts import raise_alert
 from services.order_service import compute_totals, initial_status_entry
 from services.order_confirmation import AWAITING, find_awaiting, send_summary
+from services.availability import is_sold_out, sold_out_names
 from core.setup_state import hours_status
 from core.settings import settings
 from core.events import broadcast_order_update
@@ -92,6 +93,15 @@ async def create_order_tool(
                 "notes": item.get("notes")
             })
             item_names.append(name)
+
+        # Sold-out dishes are refused here too, not only in the prompt.
+        sold_out = await sold_out_names(db, tenant_doc or {"tenant_id": tenant_id})
+        blocked = [i["name"] for i in formatted_items if is_sold_out(i["name"], sold_out)]
+        if blocked:
+            return (
+                f"Sold out today: {', '.join(blocked)}. Don't place the order with them. "
+                "Tell the customer and ask them to pick something else."
+            )
 
         subtotal, delivery_fee, total_amount, eta_minutes = compute_totals(formatted_items, tenant_doc)
 

@@ -145,6 +145,19 @@ def _escalation_block(agent: AgentSettings, currency: str) -> str:
     )
 
 
+def _sold_out_block(tenant_info: Dict[str, Any]) -> str:
+    """Dishes that are out today. The agent must not offer or order them."""
+    sold_out = tenant_info.get("sold_out") or []
+    if not sold_out:
+        return ""
+    return (
+        "==================== SOLD OUT TODAY ====================\n"
+        f"- Not available today: {', '.join(sold_out)}\n"
+        "- Don't offer these, and don't place an order with them. If the customer asks, say they're finished for today.\n"
+        "============================================================"
+    )
+
+
 def compile_customer_support_prompt(
     tenant_info: Dict[str, Any],
     customer_context: str = "",
@@ -180,6 +193,8 @@ Your job: handle customer support, answer menu & ops questions, and manage order
 ============================================================
 
 {_hours_block(tenant_info, currency, now)}
+
+{_sold_out_block(tenant_info)}
 
 ==================== CUSTOMER CONTEXT ======================
 {customer_context}

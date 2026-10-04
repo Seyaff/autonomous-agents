@@ -77,6 +77,7 @@ export interface MenuItem {
   category: string
   price: number | null
   description: string
+  sold_out_today: boolean
 }
 
 export const getMenuItems = async (): Promise<{ items: MenuItem[]; source_filename: string | null }> => {

@@ -14,6 +14,8 @@ from fastapi import (
     UploadFile,
     File,
 )
+import re
+
 from pydantic import BaseModel, Field
 
 
@@ -30,6 +32,7 @@ from core.setup_state import (
     validate_action,
 )
 from services.billing import new_subscription
+from services.availability import today_for
 from services.menu_extraction import extract_menu_items, replace_menu_items
 from services.menu_jobs import MENU_JOBS, active_job, create_job, mark_stale_jobs, public, start_job
 from core.secrets import protect
@@ -388,9 +391,11 @@ async def list_menu_items(
     if not tenant_id:
         raise HTTPException(status_code=400, detail="No active tenant found.")
 
+    tenant = await db.tenants.find_one({"tenant_id": tenant_id}, {"timezone": 1}) or {}
+    today = today_for(tenant)
     rows = await db["menu_items"].find(
         {"tenant_id": tenant_id},
-        {"_id": 0, "name": 1, "category": 1, "price": 1, "description": 1, "doc_id": 1},
+        {"_id": 0, "name": 1, "category": 1, "price": 1, "description": 1, "doc_id": 1, "sold_out_on": 1},
     ).sort([("category", 1), ("name", 1)]).to_list(length=500)
 
     source_filename = None
@@ -401,8 +406,41 @@ async def list_menu_items(
         source_filename = (doc or {}).get("title")
     for row in rows:
         row.pop("doc_id", None)
+        row["sold_out_today"] = row.pop("sold_out_on", None) == today
 
     return {"items": rows, "source_filename": source_filename}
+
+
+class SoldOutPayload(BaseModel):
+    name: str
+    sold_out: bool
+
+
+@tenant_routes.post("/current/menu-items/sold-out")
+async def set_sold_out(
+    payload: SoldOutPayload,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """Marks a dish sold out for today, or back in. It returns to the menu on its own tomorrow."""
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name the dish.")
+
+    tenant = await db.tenants.find_one({"tenant_id": tenant_id}, {"timezone": 1}) or {}
+    # Case-insensitive match on the dish name, so "chicken karahi" matches "Chicken Karahi".
+    match = {"tenant_id": tenant_id, "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}
+    if payload.sold_out:
+        update = {"$set": {"sold_out_on": today_for(tenant)}}
+    else:
+        update = {"$unset": {"sold_out_on": ""}}
+    result = await db["menu_items"].update_many(match, update)
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="That dish isn't on your menu.")
+    return {"name": name, "sold_out_today": payload.sold_out, "dishes_updated": result.matched_count}
 
 
 # ---------------------------------------------------------------------------
