@@ -1,4 +1,11 @@
 import React from "react";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Terms of Service",
+  description: "The terms for using Siyaf, the WhatsApp ordering and AI agent service for restaurants.",
+  alternates: { canonical: "/terms" },
+};
 
 export default function TermsOfService() {
   return (
@@ -16,7 +23,7 @@ export default function TermsOfService() {
 
       <section style={{ marginBottom: "24px" }}>
         <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "8px" }}>2. Your account</h2>
-        <p>Keep your sign-in details safe. You're responsible for activity on your account.</p>
+        <p>Keep your sign-in details safe. You&apos;re responsible for activity on your account.</p>
       </section>
 
       <section style={{ marginBottom: "24px" }}>
@@ -30,8 +37,8 @@ export default function TermsOfService() {
       <section style={{ marginBottom: "24px" }}>
         <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "8px" }}>4. Your responsibilities</h2>
         <p>
-          You're responsible for the menu, prices, opening hours and orders your restaurant handles, and for following
-          WhatsApp's and Meta's business policies. You can cancel at any time from the Billing page.
+          You&apos;re responsible for the menu, prices, opening hours and orders your restaurant handles, and for following
+          WhatsApp&apos;s and Meta&apos;s business policies. You can cancel at any time from the Billing page.
         </p>
       </section>
 
@@ -42,7 +49,7 @@ export default function TermsOfService() {
 
       <section style={{ marginBottom: "24px" }}>
         <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "8px" }}>6. Changes</h2>
-        <p>We may update these terms. We'll tell you about material changes in the app or by email.</p>
+        <p>We may update these terms. We&apos;ll tell you about material changes in the app or by email.</p>
       </section>
     </main>
   );

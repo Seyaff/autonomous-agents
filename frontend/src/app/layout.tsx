@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+import { siteUrl } from "@/lib/site";
+import { JsonLd } from "@/components/seo/json-ld";
 import { Familjen_Grotesk, Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import QueryProvider from "@/components/providers/query-provider";
@@ -26,9 +28,27 @@ const fontMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Siyaf",
+  metadataBase: new URL(siteUrl()),
+  title: {
+    default: "Siyaf: AI WhatsApp ordering for restaurants",
+    template: "%s · Siyaf",
+  },
   description: "AI that answers your restaurant's WhatsApp and takes orders.",
   manifest: "/site.webmanifest",
+  openGraph: {
+    siteName: "Siyaf",
+    locale: "en_PK",
+    type: "website",
+  },
+  twitter: { card: "summary_large_image" },
+};
+
+const organization = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "Siyaf",
+  url: siteUrl(),
+  logo: `${siteUrl()}/brand/logo-light-1024.png`,
 };
 
 export const viewport: Viewport = {
@@ -47,6 +67,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
+        <JsonLd data={organization} />
         <QueryProvider>
           <ThemeProvider
             attribute="class"

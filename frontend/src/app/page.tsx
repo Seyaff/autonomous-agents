@@ -1,11 +1,35 @@
+import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
+import { JsonLd } from "@/components/seo/json-ld"
+import { absoluteUrl, SITE_NAME } from "@/lib/site"
+
+export const metadata: Metadata = {
+  title: { absolute: "Siyaf: AI WhatsApp ordering for restaurants" },
+  description: "Siyaf is an AI agent that answers your restaurant's WhatsApp customers, takes orders, and hands over to you when a person is needed. Start a free trial.",
+  alternates: { canonical: "/" },
+};
+
+const software = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: SITE_NAME,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  url: absoluteUrl("/"),
+  offers: [
+    { "@type": "Offer", name: "Basic", price: "2999", priceCurrency: "PKR", description: "200 AI chats a month" },
+    { "@type": "Offer", name: "Standard", price: "5999", priceCurrency: "PKR", description: "600 AI chats a month" },
+    { "@type": "Offer", name: "Pro", price: "11999", priceCurrency: "PKR", description: "1,500 AI chats a month" },
+  ],
+};
 
 // The public homepage. Anyone can read it without signing in: what Siyaf is, who it's for,
 // and links to the privacy policy and terms.
 export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-svh max-w-[760px] flex-col gap-10 px-5 py-12 text-foreground">
+      <JsonLd data={software} />
       <header className="flex items-center justify-between">
         <span className="flex items-center gap-2 font-display text-xl font-semibold">
           <Image src="/brand/logo-light-1024.png" alt="" width={32} height={32} className="size-8 rounded-md" />

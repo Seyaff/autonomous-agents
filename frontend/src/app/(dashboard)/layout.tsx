@@ -23,6 +23,7 @@ export default function DashboardLayout({
 
   return (
     <SidebarProvider>
+      <meta name="robots" content="noindex, nofollow" />
       <AppSidebar />
       <SidebarInset className="gap-0 p-0">
         <div className="flex h-svh flex-1 flex-col overflow-hidden">
