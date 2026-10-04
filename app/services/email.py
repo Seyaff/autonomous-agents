@@ -34,7 +34,7 @@ async def ensure_email_indexes(db) -> None:
 
 def render(title: str, lines: list, button_text: Optional[str] = None, button_path: Optional[str] = None) -> tuple:
     """(html, text) for a short transactional email."""
-    frontend = settings.FRONTEND_URL.rstrip("/")
+    frontend = settings.frontend_origin
     body = "".join(f"<p style='margin:0 0 12px'>{html.escape(line)}</p>" for line in lines)
     button = ""
     text_lines = [title, "", *lines]

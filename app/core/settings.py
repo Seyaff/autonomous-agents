@@ -75,6 +75,20 @@ class Settings(BaseSettings):
     GOOGLE_CALLBACK_URL: str = "http://localhost:8000/api/v1/auth/google/callback"
     FRONTEND_ORIGIN: str = "http://localhost:3000"
     FRONTEND_URL: str = "http://localhost:3000"
+
+    @property
+    def frontend_origin(self) -> str:
+        """Where the app lives. If FRONTEND_URL isn't set for production, use the site the Google
+        callback points at, so users aren't sent to localhost after signing in."""
+        from urllib.parse import urlsplit
+
+        configured = (self.FRONTEND_URL or "").rstrip("/")
+        if configured and "localhost" not in configured:
+            return configured
+        callback = urlsplit(self.GOOGLE_CALLBACK_URL or "")
+        if callback.scheme == "https" and callback.netloc and "localhost" not in callback.netloc:
+            return f"{callback.scheme}://{callback.netloc}"
+        return configured or "http://localhost:3000"
     JWT_SECRET_KEY: str = "default_secret_key_change_in_production"
     SESSION_SECRET_KEY: str = "default_session_secret_key"
     JWT_ALGORITHM: str = "HS256"
