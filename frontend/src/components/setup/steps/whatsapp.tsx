@@ -84,6 +84,17 @@ export function WhatsAppStep() {
         <Button variant="outline" onClick={() => router.push("/setup/test")}>
           Back
         </Button>
+        {!connected && (
+          <Button
+            variant="ghost"
+            disabled={complete.isPending}
+            onClick={() =>
+              complete.mutate({ step: "whatsapp", action: "skip" }, { onSuccess: () => router.push("/setup/done") })
+            }
+          >
+            Connect later
+          </Button>
+        )}
         {connected && (
           <Button
             disabled={complete.isPending}

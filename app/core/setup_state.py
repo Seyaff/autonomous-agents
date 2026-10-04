@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field, field_validator
 
 SETUP_STEPS: List[str] = ["restaurant", "menu", "hours", "agent", "test", "whatsapp"]
-SKIPPABLE = {"menu"}  # WhatsApp is required: without it the agent can't reply to customers
+SKIPPABLE = {"menu", "whatsapp"}  # WhatsApp can be connected later; the dashboard keeps reminding the owner
 DAYS: List[str] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 # Currency and timezone are derived from the country on the server. The client never sends them.
