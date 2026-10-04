@@ -305,6 +305,7 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
             "updated_at": datetime.now(timezone.utc),
         }
         await users.insert_one(new_user)
+        user = new_user
     else:
         user_id = user["user_id"]
         await users.update_one(
