@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Siyaf mark, light: the founder drawn in anime style with a headset, in a framed bone-white box">
+  <defs><clipPath id="inner"><rect x="28" y="28" width="456" height="456"/></clipPath></defs>
+  <rect width="512" height="512" fill="#f4f2ec"/>
+  <g clip-path="url(#inner)"><g transform="translate(256 286) scale(1.22) translate(-256 -270)" fill="none" stroke="#0b0b0c" stroke-linecap="round" stroke-linejoin="round">
+    <!-- shirt: shoulders, open collar -->
+    <path d="M86 520 C100 440 174 404 256 400 C338 404 412 440 426 520 Z" fill="#f4f2ec" stroke-width="7"/>
+    <path d="M232 348 L232 400 M280 348 L280 400" stroke-width="6"/>
+    <path d="M232 394 L204 420 L250 452 Z" fill="#0b0b0c" stroke-width="4"/>
+    <path d="M280 394 L308 420 L262 452 Z" fill="#0b0b0c" stroke-width="4"/>
+    <!-- face -->
+    <path d="M188 196 C188 160 218 140 256 140 C294 140 324 160 324 196 L324 250 C324 300 296 344 256 362 C216 344 188 300 188 250 Z" fill="#f4f2ec" stroke-width="7"/>
+    <!-- beard along the jaw, with moustache -->
+    <path d="M190 270 L199 270 C204 288 216 300 232 306 C244 301 268 301 280 306 C296 300 308 288 313 270 L322 270 C320 306 294 344 256 362 C218 344 192 306 190 270 Z" fill="#0b0b0c" stroke-width="3"/>
+    <path d="M238 322 Q256 312 274 322 Q256 336 238 322 Z" fill="#f4f2ec" stroke="none"/>
+    <path d="M241 322 Q256 318 271 322" stroke-width="2.5"/>
+    <!-- quiff: swept up and back, short sides -->
+    <path d="M186 238 C176 196 178 150 202 118 C224 90 262 70 304 72 C334 74 356 92 350 116 C364 128 364 156 352 176 C348 200 338 218 330 238 L324 212 C318 190 296 178 270 176 C244 174 216 182 202 198 C195 210 192 224 192 238 Z" fill="#0b0b0c" stroke-width="3"/>
+    <path d="M206 172 C224 130 264 106 316 102" stroke="#f4f2ec" stroke-width="4"/>
+    <path d="M232 160 C254 132 290 120 334 126" stroke="#f4f2ec" stroke-width="4"/>
+    <path d="M262 158 C284 142 312 140 344 152" stroke="#f4f2ec" stroke-width="3.5"/>
+    <!-- brows: thick, straight, slightly lowered inside -->
+    <path d="M200 214 C214 204 232 205 245 214 L243 223 C230 216 216 216 202 222 Z" fill="#0b0b0c" stroke-width="2"/>
+    <path d="M312 214 C298 204 280 205 267 214 L269 223 C282 216 296 216 310 222 Z" fill="#0b0b0c" stroke-width="2"/>
+    <!-- eyes -->
+    <path d="M205 245 Q225 233 245 245 Q225 255 205 245 Z" fill="#0b0b0c" stroke-width="2"/>
+    <path d="M202 243 Q225 228 248 241" stroke-width="6"/>
+    <circle cx="226" cy="246" r="7.5" fill="#f4f2ec" stroke="none"/>
+    <circle cx="229" cy="243" r="2.4" fill="#0b0b0c" stroke="none"/>
+    <path d="M267 245 Q287 233 307 245 Q287 255 267 245 Z" fill="#0b0b0c" stroke-width="2"/>
+    <path d="M264 241 Q287 228 310 243" stroke-width="6"/>
+    <circle cx="286" cy="246" r="7.5" fill="#f4f2ec" stroke="none"/>
+    <circle cx="289" cy="243" r="2.4" fill="#0b0b0c" stroke="none"/>
+    <!-- nose: long and straight -->
+    <path d="M258 250 L255 284" stroke-width="4"/>
+    <path d="M245 289 Q256 296 267 289" stroke-width="4"/>
+    <!-- headset: band over the hair, cups, mic -->
+    <path d="M174 232 C166 96 346 96 338 232" stroke="#f4f2ec" stroke-width="15"/>
+    <path d="M174 232 C166 96 346 96 338 232" stroke-width="6"/>
+    <rect x="160" y="214" width="26" height="54" rx="10" fill="#0b0b0c" stroke="none"/>
+    <rect x="326" y="214" width="26" height="54" rx="10" fill="#0b0b0c" stroke="none"/>
+    <path d="M172 266 C174 296 194 314 214 316" stroke-width="6"/>
+    <circle cx="219" cy="316" r="7" fill="#0b0b0c" stroke="#f4f2ec" stroke-width="2"/>
+  </g></g>
+  <rect x="16" y="16" width="480" height="480" fill="none" stroke="#0b0b0c" stroke-width="6"/>
+  <rect x="28" y="28" width="456" height="456" fill="none" stroke="#0b0b0c" stroke-width="2"/>
+</svg>
