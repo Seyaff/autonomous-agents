@@ -81,3 +81,16 @@ def test_returning_google_user_is_signed_in_without_a_duplicate(db, monkeypatch)
     assert r.status_code in (302, 307)
     assert len(db["users"].docs) == 1
     assert "access_token" in r.headers.get("set-cookie", "")
+
+
+def test_a_failed_google_sign_in_returns_to_login_with_a_message(db, monkeypatch):
+    async def refused(request):
+        raise RuntimeError("mismatching_state")
+
+    monkeypatch.setattr(auth_module, "oauth", types.SimpleNamespace(google=types.SimpleNamespace(authorize_access_token=refused)))
+    client = TestClient(app, follow_redirects=False)
+
+    r = client.get("/api/v1/auth/google/callback?state=/setup")
+
+    assert r.status_code in (302, 307)
+    assert r.headers["location"].endswith("/login?error=google_verify")

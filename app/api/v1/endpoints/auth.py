@@ -341,18 +341,18 @@ async def login_with_google(request: Request):
 @auth_routes.get("/google/callback", name="google_callback_handler")
 async def google_callback_handler(request: Request, database=Depends(get_database)):
     """Handles callback from Google OAuth."""
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000").rstrip("/")
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"OAuth verification error: {str(e)}"
-        )
+        # Send the user back to the login page with a message, not a raw error page.
+        logger.error(f"[google] could not verify the sign-in: {e}")
+        return RedirectResponse(url=f"{frontend_url}/login?error=google_verify")
 
     user_info = token.get("userinfo")
     if not user_info:
-        raise HTTPException(
-            status_code=400, detail="Could not retrieve profile from Google."
-        )
+        logger.error("[google] Google returned no profile")
+        return RedirectResponse(url=f"{frontend_url}/login?error=google_profile")
 
     google_id = user_info["sub"]
     email = user_info["email"].lower()
@@ -393,7 +393,6 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
     # Get next parameter from state (passed through OAuth flow)
     next_param = request.query_params.get("state") or request.query_params.get("next", "/setup" if not is_onboarded else "/dashboard")
     
-    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
     # Ensure next_param starts with /
     if not next_param.startswith("/"):
         next_param = "/" + next_param
