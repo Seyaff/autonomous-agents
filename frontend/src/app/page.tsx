@@ -1,3 +1,4 @@
+import Image from "next/image"
 import Link from "next/link"
 
 // The public homepage. Anyone can read it without signing in: what Siyaf is, who it's for,
@@ -6,7 +7,10 @@ export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-svh max-w-[760px] flex-col gap-10 px-5 py-12 text-foreground">
       <header className="flex items-center justify-between">
-        <span className="font-display text-xl font-semibold">Siyaf</span>
+        <span className="flex items-center gap-2 font-display text-xl font-semibold">
+          <Image src="/brand/logo-light-1024.png" alt="" width={32} height={32} className="size-8 rounded-md" />
+          Siyaf
+        </span>
         <nav className="flex gap-3 text-sm">
           <Link className="underline underline-offset-4" href="/login">Log in</Link>
           <Link className="underline underline-offset-4" href="/signup">Sign up</Link>
@@ -15,10 +19,10 @@ export default function HomePage() {
 
       <section className="space-y-4">
         <h1 className="font-display text-3xl font-semibold leading-tight">
-          An AI agent that answers your restaurant's WhatsApp customers.
+          An AI agent that answers your restaurant&apos;s WhatsApp customers.
         </h1>
         <p className="text-base text-muted-foreground">
-          Siyaf answers customers on WhatsApp in your restaurant's own voice. It knows your menu, your
+          Siyaf answers customers on WhatsApp in your restaurant&apos;s own voice. It knows your menu, your
           opening hours and your delivery areas. It takes orders, and it only sends an order to your kitchen
           after the customer confirms it. It hands over to you when a customer needs a person.
         </p>

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Familjen_Grotesk, Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import QueryProvider from "@/components/providers/query-provider";
@@ -27,8 +27,12 @@ const fontMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Siyaf",
-  description:
-    "Autonomous WhatsApp customer support, live inbox, and order tracking for restaurants — run by your own AI agent team.",
+  description: "AI that answers your restaurant's WhatsApp and takes orders.",
+  manifest: "/site.webmanifest",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0b0b0c",
 };
 
 export default function RootLayout({
