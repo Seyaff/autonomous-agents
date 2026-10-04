@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { siteUrl } from "@/lib/site";
 import { JsonLd } from "@/components/seo/json-ld";
+import { Analytics } from "@vercel/analytics/next";
 import { Familjen_Grotesk, Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import QueryProvider from "@/components/providers/query-provider";
@@ -78,6 +79,7 @@ export default function RootLayout({
             <AuthProvider>
               <TooltipProvider>
                 {children}
+                <Analytics />
                 <Toaster />
               </TooltipProvider>
             </AuthProvider>
