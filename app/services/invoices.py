@@ -96,14 +96,19 @@ async def pay_open_invoice(db, invoice: Dict[str, Any], method: str = "card") ->
         mail.payment_failed(to, tenant, invoice, result.error or "The payment didn't go through.")
         return None, result.error or "The payment didn't go through. Try again."
 
+    return await complete_invoice(db, invoice, provider.name, result.reference)
+
+
+async def complete_invoice(db, invoice: Dict[str, Any], provider_name: str, reference: str) -> Tuple[Dict[str, Any], None]:
+    """An open invoice is paid: record it, start what it paid for, and email the owner."""
     now = datetime.now(timezone.utc)
     await db[INVOICES].update_one(
         {"invoice_id": invoice["invoice_id"], "tenant_id": invoice["tenant_id"]},
         {"$set": {
             "status": "paid",
             "paid_at": now,
-            "provider": provider.name,
-            "payment_reference": result.reference,
+            "provider": provider_name,
+            "payment_reference": reference,
             "updated_at": now,
         }},
     )
@@ -124,6 +129,26 @@ async def pay_open_invoice(db, invoice: Dict[str, Any], method: str = "card") ->
     active_until = (tenant.get("subscription") or {}).get("current_period_end")
     mail.payment_received(to, tenant, paid, str(active_until) if active_until else None)
     return paid, None
+
+
+async def start_hosted_payment(db, invoice: Dict[str, Any]) -> str:
+    """Gives an open invoice a JazzCash payment reference and returns the link the owner opens.
+    Raises ProviderNotConfigured if JazzCash isn't set up."""
+    from services.jazzcash import txn_ref
+    from services.online_payments import PROVIDERS
+
+    provider = PROVIDERS["jazzcash"]
+    if not provider.configured():
+        from services.online_payments import ProviderNotConfigured
+
+        raise ProviderNotConfigured("JazzCash isn't set up yet.")
+    now = datetime.now(timezone.utc)
+    reference = txn_ref(invoice["invoice_id"], now)
+    await db[INVOICES].update_one(
+        {"invoice_id": invoice["invoice_id"], "tenant_id": invoice["tenant_id"]},
+        {"$set": {"payment_reference": reference, "provider": "jazzcash", "updated_at": now}},
+    )
+    return await provider.create_payment_link(reference=reference)
 
 
 def _utc(dt: datetime) -> datetime:

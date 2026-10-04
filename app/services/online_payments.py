@@ -231,7 +231,7 @@ async def handle_payment_webhook(db, provider_name: str, headers: Dict[str, str]
 
     order = await db["orders"].find_one({"payment_reference": event["reference"]})
     if not order:
-        return "no order for this payment"
+        return await _complete_hosted_invoice(db, provider_name, event)
     if int(round(float(order.get("total_amount", 0)))) != int(event["amount_pkr"]):
         logger.error(f"[payments] amount mismatch for {order['order_id']}: expected {order.get('total_amount')}, got {event['amount_pkr']}")
         return "amount mismatch"
@@ -252,6 +252,25 @@ async def handle_payment_webhook(db, provider_name: str, headers: Dict[str, str]
     order.pop("_id", None)
     await broadcast_order_update(tenant_id=order["tenant_id"], event_type="order.created", order_data=order)
     return "marked paid"
+
+
+async def _complete_hosted_invoice(db, provider_name: str, event: Dict[str, Any]) -> str:
+    """A subscription or renewal invoice paid through the hosted page."""
+    from services.invoices import INVOICES, complete_invoice
+
+    invoice = await db[INVOICES].find_one({"payment_reference": event["reference"]})
+    if not invoice:
+        return "no order or invoice for this payment"
+    if invoice.get("status") != "open":
+        return f"ignored: invoice is {invoice.get('status')}"
+    if int(round(float(invoice.get("amount_pkr", 0)))) != int(event["amount_pkr"]):
+        logger.error(f"[payments] amount mismatch for {invoice['invoice_id']}")
+        return "amount mismatch"
+    if not await record_payment(db, provider=provider_name, reference=event["reference"], order_id=invoice["invoice_id"],
+                                amount_pkr=int(event["amount_pkr"]), status="paid"):
+        return "already recorded"
+    await complete_invoice(db, invoice, provider_name, event["reference"])
+    return "invoice paid"
 
 
 async def expire_stale_payments(db, now: Optional[datetime] = None) -> int:

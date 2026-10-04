@@ -80,6 +80,7 @@ export interface Invoice {
 }
 
 export interface PaymentResponse {
+  redirect_url?: string
   invoice: Invoice | null
   subscription: Partial<SubscriptionResponse> & { status?: string; current_period_end?: string | null }
 }
