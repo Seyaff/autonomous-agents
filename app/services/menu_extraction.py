@@ -196,7 +196,8 @@ async def extract_menu_items(menu_text: str, on_progress: Optional[ProgressCallb
 async def replace_menu_items(db, tenant_id: str, doc_id: str, items: List[Dict[str, Any]]) -> int:
     """Swaps the tenant's dishes for the ones from this menu. Returns how many were saved."""
     now = datetime.now(timezone.utc)
-    await db[MENU_ITEMS].delete_many({"tenant_id": tenant_id})
+    # Dishes the owner added by hand are kept. The upload only replaces what it extracted.
+    await db[MENU_ITEMS].delete_many({"tenant_id": tenant_id, "manual": {"$ne": True}})
     if items:
         await db[MENU_ITEMS].insert_many([
             {**item, "tenant_id": tenant_id, "doc_id": doc_id, "created_at": now}

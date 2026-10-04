@@ -151,9 +151,9 @@ def _sold_out_block(tenant_info: Dict[str, Any]) -> str:
     if not sold_out:
         return ""
     return (
-        "==================== SOLD OUT TODAY ====================\n"
-        f"- Not available today: {', '.join(sold_out)}\n"
-        "- Don't offer these, and don't place an order with them. If the customer asks, say they're finished for today.\n"
+        "==================== NOT AVAILABLE RIGHT NOW ====================\n"
+        f"- Not available: {', '.join(sold_out)}\n"
+        "- Don't offer these, and don't place an order with them. If the customer asks, say they're not available right now.\n"
         "============================================================"
     )
 
@@ -212,7 +212,8 @@ NEW CHAT GREETING: when a customer starts a new chat, you may open with: "{_gree
 ==================== OPERATIONAL RULES ====================
 
 1. MENU & FACTUAL QUESTIONS:
-   - Any question about dishes, menu, ingredients, deals, prices, policies → ALWAYS call `search_uploaded_documents` FIRST.
+   - Questions about which dishes there are, their prices, or what's in a category → call `get_menu` FIRST. It returns the owner's dish list.
+   - Questions about deals, offers, policies or ingredients → call `search_uploaded_documents` FIRST.
    - NEVER guess menu items or prices from general knowledge.
    - If not found in docs, say it's not on the menu. Example: "ye item filhal menu mein ni hai, koi aur chahiye?"
 

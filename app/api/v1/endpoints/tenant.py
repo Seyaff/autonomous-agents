@@ -17,6 +17,8 @@ from fastapi import (
 import re
 
 from pydantic import BaseModel, Field
+from bson import ObjectId
+from bson.errors import InvalidId
 
 
 from core.database import get_database
@@ -395,7 +397,7 @@ async def list_menu_items(
     today = today_for(tenant)
     rows = await db["menu_items"].find(
         {"tenant_id": tenant_id},
-        {"_id": 0, "name": 1, "category": 1, "price": 1, "description": 1, "doc_id": 1, "sold_out_on": 1},
+        {"name": 1, "category": 1, "price": 1, "description": 1, "doc_id": 1, "sold_out_on": 1, "hidden": 1, "manual": 1},
     ).sort([("category", 1), ("name", 1)]).to_list(length=500)
 
     source_filename = None
@@ -405,7 +407,10 @@ async def list_menu_items(
         )
         source_filename = (doc or {}).get("title")
     for row in rows:
+        row["id"] = str(row.pop("_id"))
         row.pop("doc_id", None)
+        row.pop("manual", None)
+        row["hidden"] = bool(row.get("hidden"))
         row["sold_out_today"] = row.pop("sold_out_on", None) == today
 
     return {"items": rows, "source_filename": source_filename}
@@ -664,3 +669,88 @@ async def get_menu_upload(
     if not doc:
         raise HTTPException(status_code=404, detail="Upload not found.")
     return {"job": public(doc)}
+
+
+class MenuItemFields(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=80)
+    category: Optional[str] = Field(None, max_length=60)
+    price: Optional[float] = Field(None, ge=0, le=1000000)
+    description: Optional[str] = Field(None, max_length=300)
+    hidden: Optional[bool] = None
+
+
+def _dish_id(item_id: str) -> ObjectId:
+    try:
+        return ObjectId(item_id)
+    except (InvalidId, TypeError):
+        raise HTTPException(status_code=404, detail="That dish isn't on your menu.")
+
+
+@tenant_routes.post("/current/menu-items")
+async def add_menu_item(
+    payload: MenuItemFields,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """Adds a dish the menu upload missed. Dishes added by hand aren't replaced by the next upload."""
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+    if not payload.name or payload.price is None:
+        raise HTTPException(status_code=400, detail="A dish needs a name and a price.")
+    doc = {
+        "tenant_id": tenant_id,
+        "name": payload.name.strip(),
+        "category": (payload.category or "").strip() or None,
+        "price": payload.price,
+        "description": (payload.description or "").strip(),
+        "hidden": bool(payload.hidden),
+        "manual": True,
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await db["menu_items"].insert_one(doc)
+    return {"id": str(result.inserted_id)}
+
+
+@tenant_routes.patch("/current/menu-items/{item_id}")
+async def update_menu_item(
+    item_id: str,
+    payload: MenuItemFields,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """Fixes a dish: its name, category, price, description, or whether the agent can offer it."""
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+    changes = payload.model_dump(exclude_none=True)
+    if "name" in changes:
+        changes["name"] = changes["name"].strip()
+    if "category" in changes:
+        changes["category"] = changes["category"].strip() or None
+    if "description" in changes:
+        changes["description"] = changes["description"].strip()
+    if not changes:
+        raise HTTPException(status_code=400, detail="Nothing to change.")
+    result = await db["menu_items"].update_one(
+        {"_id": _dish_id(item_id), "tenant_id": tenant_id},
+        {"$set": {**changes, "updated_at": datetime.now(timezone.utc)}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="That dish isn't on your menu.")
+    return {"id": item_id, **changes}
+
+
+@tenant_routes.delete("/current/menu-items/{item_id}")
+async def delete_menu_item(
+    item_id: str,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+    result = await db["menu_items"].delete_one({"_id": _dish_id(item_id), "tenant_id": tenant_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="That dish isn't on your menu.")
+    return {"status": "deleted"}

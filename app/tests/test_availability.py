@@ -30,10 +30,10 @@ def test_name_matching_ignores_case_and_extra_spaces():
 
 def test_prompt_tells_the_agent_what_is_out_today():
     prompt = compile_customer_support_prompt({"business_name": "Diner", "sold_out": ["Chicken Karahi"]}, "")
-    assert "SOLD OUT TODAY" in prompt
+    assert "NOT AVAILABLE RIGHT NOW" in prompt
     assert "Chicken Karahi" in prompt
 
 
 def test_prompt_has_no_sold_out_block_when_everything_is_available():
     prompt = compile_customer_support_prompt({"business_name": "Diner"}, "")
-    assert "SOLD OUT TODAY" not in prompt
+    assert "NOT AVAILABLE RIGHT NOW" not in prompt
