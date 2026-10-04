@@ -39,8 +39,7 @@ export default async function GuidePage({ params }: Params) {
     description: guide.description,
     datePublished: guide.date,
     dateModified: guide.updated,
-    // Attributed to the company until the founder's name is added to the site.
-    author: { "@type": "Organization", name: SITE_NAME, url: absoluteUrl("/") },
+    author: { "@type": "Person", name: "Siyaf", jobTitle: "Founder", worksFor: { "@type": "Organization", name: SITE_NAME } },
     publisher: { "@type": "Organization", name: SITE_NAME, logo: { "@type": "ImageObject", url: absoluteUrl("/brand/logo-light-1024.png") } },
     image: absoluteUrl(`${path}/opengraph-image`),
     mainEntityOfPage: absoluteUrl(path),
