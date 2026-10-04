@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { LiveOnly } from "@/components/dashboard/live-only"
+import { SoldOutList } from "@/components/menu/sold-out-list"
 import { useKnowledge } from "@/hooks/knowledge/use-knowledge"
 import { USE_MOCKS } from "@/lib/mocks"
 import type { KnowledgeCategory } from "@/services/knowledge/knowledge.service"
@@ -94,6 +95,8 @@ function MenuKnowledge() {
           What the agent can answer from: menus, deals, policies and FAQs
         </p>
       </div>
+
+      <SoldOutList />
 
       <div className="grid gap-4 p-4 lg:grid-cols-2">
         <section className="rounded-lg border border-border bg-card p-4">
