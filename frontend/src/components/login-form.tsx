@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { getUserQuery } from "@/services/auth/auth.service"
 import { useGoogleLogin } from "@/hooks/auth/use-google"
+import { useSlow, useWakeServer } from "@/hooks/auth/use-wake-server"
 import API from "@/lib/axios-client"
 
 export function LoginForm({
@@ -25,10 +26,14 @@ export function LoginForm({
 }: React.ComponentProps<"div"> & { next?: string }) {
   const router = useRouter()
   const { mutate: loginWithGoogle, isPending: isGooglePending } = useGoogleLogin()
+  const [googleOpening, setGoogleOpening] = useState(false)
+  const googleBusy = isGooglePending || googleOpening
+  useWakeServer()
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const slow = useSlow(loading)
   const [error, setError] = useState<string | null>(null)
   const [challenge, setChallenge] = useState<string | null>(null)
   const [code, setCode] = useState("")
@@ -100,6 +105,9 @@ export function LoginForm({
   }
 
   const handleGoogleLogin = () => {
+    // Google's page is a full navigation, so show the click registered until the page changes.
+    setGoogleOpening(true)
+    setTimeout(() => setGoogleOpening(false), 15000)
     loginWithGoogle(next)
   }
 
@@ -151,6 +159,11 @@ export function LoginForm({
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Signing in..." : "Sign In with Email"}
             </Button>
+            {slow && (
+              <p className="text-center text-sm text-muted-foreground">
+                Waking up our server. After a quiet spell this can take up to a minute.
+              </p>
+            )}
           </div>
 
           <div className="relative my-2 text-center text-xs after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
@@ -163,7 +176,7 @@ export function LoginForm({
             variant="outline"
             type="button"
             onClick={handleGoogleLogin}
-            disabled={isGooglePending || loading}
+            disabled={googleBusy || loading}
             className="w-full"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-4 h-4 mr-2">
@@ -172,7 +185,7 @@ export function LoginForm({
                 fill="currentColor"
               />
             </svg>
-            {isGooglePending ? "Connecting to Google..." : "Google Account"}
+            {googleBusy ? "Opening Google..." : "Google Account"}
           </Button>
         </FieldGroup>
       </form>

@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { getUserQuery } from "@/services/auth/auth.service"
 import { useGoogleLogin } from "@/hooks/auth/use-google"
+import { useSlow, useWakeServer } from "@/hooks/auth/use-wake-server"
 import API from "@/lib/axios-client"
 
 export function SignupForm({
@@ -24,11 +25,20 @@ export function SignupForm({
 }: React.ComponentProps<"div">) {
   const router = useRouter()
   const { mutate: loginWithGoogle, isPending: isGooglePending } = useGoogleLogin()
+  const [googleOpening, setGoogleOpening] = useState(false)
+  const googleBusy = isGooglePending || googleOpening
+  useWakeServer()
+  const startGoogle = () => {
+    setGoogleOpening(true)
+    setTimeout(() => setGoogleOpening(false), 15000)
+    loginWithGoogle()
+  }
 
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const slow = useSlow(loading)
   const [error, setError] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
@@ -116,6 +126,11 @@ export function SignupForm({
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Creating Account..." : "Create Account"}
             </Button>
+            {slow && (
+              <p className="text-center text-sm text-muted-foreground">
+                Waking up our server. After a quiet spell this can take up to a minute.
+              </p>
+            )}
           </div>
 
           <div className="relative my-2 text-center text-xs after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
@@ -127,8 +142,8 @@ export function SignupForm({
           <Button
             variant="outline"
             type="button"
-            onClick={() => loginWithGoogle()}
-            disabled={isGooglePending || loading}
+            onClick={startGoogle}
+            disabled={googleBusy || loading}
             className="w-full"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-4 h-4 mr-2">
@@ -137,7 +152,7 @@ export function SignupForm({
                 fill="currentColor"
               />
             </svg>
-            {isGooglePending ? "Connecting to Google..." : "Google Account"}
+            {googleBusy ? "Opening Google..." : "Google Account"}
           </Button>
         </FieldGroup>
       </form>
