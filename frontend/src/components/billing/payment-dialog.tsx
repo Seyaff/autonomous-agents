@@ -140,6 +140,11 @@ export function PlanPickerDialog({
     setDowngrade(mode === "change" && !isUpgrade)
     try {
       const res = mode === "change" ? await changePlan(selected) : await checkout(selected, interval)
+      if (res.redirect_url) {
+        // Online payment: the owner pays on the JazzCash page, then comes back to the dashboard.
+        window.location.href = res.redirect_url
+        return
+      }
       setResult(res)
       setStage("done")
     } catch (err: any) {
@@ -276,7 +281,12 @@ export function PayInvoiceDialog({
     setStage("processing")
     setError(null)
     try {
-      setResult(await (payFn ?? payInvoice)(invoiceId))
+      const res = await (payFn ?? payInvoice)(invoiceId)
+      if (res.redirect_url) {
+        window.location.href = res.redirect_url
+        return
+      }
+      setResult(res)
       setStage("done")
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? "The payment didn't go through.")

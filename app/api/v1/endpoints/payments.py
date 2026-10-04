@@ -19,20 +19,26 @@ payments_router = APIRouter(prefix="/payments", tags=["Payments"])
 
 @payments_router.get("/jazzcash/checkout/{reference}", response_class=HTMLResponse)
 async def jazzcash_checkout(reference: str):
-    """The page the customer opens from WhatsApp. It posts the signed payment form to JazzCash."""
+    """The page the owner or customer opens. It posts the signed payment form to JazzCash."""
+    from services.invoices import INVOICES
+
     db = get_database()
-    order = await db["orders"].find_one({"payment_reference": reference})
-    if not order or order.get("status") != AWAITING_PAYMENT or expired(order):
-        raise HTTPException(status_code=404, detail="This payment link isn't active.")
     now = datetime.now(timezone.utc)
+    return_url = settings.PAYMENT_RETURN_URL or f"{settings.PUBLIC_API_BASE.rstrip('/')}/payments/jazzcash/return"
+
+    order = await db["orders"].find_one({"payment_reference": reference})
+    if order:
+        if order.get("status") != AWAITING_PAYMENT or expired(order):
+            raise HTTPException(status_code=404, detail="This payment link isn't active.")
+        amount, description = int(round(float(order.get("total_amount", 0)))), f"Order {order['order_id']}"
+    else:
+        invoice = await db[INVOICES].find_one({"payment_reference": reference})
+        if not invoice or invoice.get("status") != "open":
+            raise HTTPException(status_code=404, detail="This payment link isn't active.")
+        amount, description = int(round(float(invoice.get("amount_pkr", 0)))), f"Invoice {invoice['invoice_id']}"
+
     fields = jazzcash.signed_fields(
-        jazzcash.payment_fields(
-            reference=reference,
-            amount_pkr=int(round(float(order.get("total_amount", 0)))),
-            description=f"Order {order['order_id']}",
-            return_url=settings.PAYMENT_RETURN_URL or f"{settings.PUBLIC_API_BASE.rstrip('/')}/payments/jazzcash/return",
-            now=now,
-        ),
+        jazzcash.payment_fields(reference=reference, amount_pkr=amount, description=description, return_url=return_url, now=now),
         settings.JAZZCASH_INTEGRITY_SALT,
     )
     return HTMLResponse(jazzcash.auto_submit_form(fields, settings.JAZZCASH_CHECKOUT_URL))

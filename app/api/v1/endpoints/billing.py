@@ -184,9 +184,17 @@ async def checkout(
         raise HTTPException(status_code=409, detail="You already have an active plan. Plan changes come in the next update.")
 
     invoice = await create_subscription_invoice(db, tenant_id, body.plan, body.interval)
-    paid, error = await pay_open_invoice(db, invoice)
-    if error:
-        return _payment_failed(error, invoice)
+    hosted = await _pay_or_redirect(db, invoice)
+
+    if hosted.get("redirect_url"):
+
+        return hosted
+
+    if hosted.get("error"):
+
+        return _payment_failed(hosted["error"], invoice)
+
+    paid = hosted["paid"]
 
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"subscription": 1}) or {}
     return {"invoice": paid, "subscription": tenant.get("subscription", {})}
@@ -206,9 +214,22 @@ async def pay_invoice(
     if invoice.get("status") != "open":
         raise HTTPException(status_code=409, detail="This invoice has already been paid.")
 
-    paid, error = await pay_open_invoice(db, invoice, method=body.method)
-    if error:
-        return _payment_failed(error, invoice)
+    hosted = await _pay_or_redirect(db, invoice, method=body.method)
+
+
+    if hosted.get("redirect_url"):
+
+
+        return hosted
+
+
+    if hosted.get("error"):
+
+
+        return _payment_failed(hosted["error"], invoice)
+
+
+    paid = hosted["paid"]
 
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"subscription": 1}) or {}
     return {"invoice": paid, "subscription": tenant.get("subscription", {})}
@@ -222,6 +243,22 @@ async def list_invoices(
     tenant_id = _tenant_id(current_user)
     cursor = db[INVOICES].find({"tenant_id": tenant_id}, PUBLIC_FIELDS).sort("created_at", -1).limit(50)
     return await cursor.to_list(length=50)
+
+
+async def _pay_or_redirect(db, invoice: dict, method: str = "card") -> dict:
+    """Subscription and renewal payments: JazzCash when it's the active provider (the owner is
+    sent to its page), otherwise the built-in payment provider."""
+    from core.settings import settings as app_settings
+    from services.online_payments import ProviderNotConfigured
+    from services.invoices import start_hosted_payment
+
+    if (app_settings.PAYMENTS_PROVIDER or "dummy").lower() == "jazzcash":
+        try:
+            return {"redirect_url": await start_hosted_payment(db, invoice)}
+        except ProviderNotConfigured:
+            return {"error": "Online payment isn't set up yet. Try again later."}
+    paid, error = await pay_open_invoice(db, invoice, method=method)
+    return {"paid": paid, "error": error}
 
 
 class ChangePlanRequest(BaseModel):
@@ -254,9 +291,17 @@ async def change_plan(
     if plan_fee_pkr(body.plan, interval) > plan_fee_pkr(current, interval):
         now = datetime.now(timezone.utc)
         invoice = await create_upgrade_invoice(db, tenant_id, sub, body.plan, now)
-        paid, error = await pay_open_invoice(db, invoice)
-        if error:
-            return _payment_failed(error, invoice)
+        hosted = await _pay_or_redirect(db, invoice)
+
+        if hosted.get("redirect_url"):
+
+            return hosted
+
+        if hosted.get("error"):
+
+            return _payment_failed(hosted["error"], invoice)
+
+        paid = hosted["paid"]
         to, owner_tenant = await mail.owner_context(db, tenant_id)
         mail.plan_changed(to, owner_tenant, PLANS[body.plan]["name"], None, paid["invoice_id"])
         return {"invoice": paid, "subscription": await _subscription_of(db, tenant_id)}
