@@ -47,7 +47,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-const PUBLIC_PATHS = ["/login", "/signup", "/privacy"]
+const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/terms"]
 const FOUNDER_PREFIX = "/founder"
 const SETUP_PREFIX = "/setup"
 
