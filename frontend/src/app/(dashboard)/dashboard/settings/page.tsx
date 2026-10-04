@@ -13,6 +13,7 @@ import { MetaEmbeddedSignup } from "@/components/MetaEmbeddedSignup"
 import { useQueryClient } from "@tanstack/react-query"
 import { useTenantSettings } from "@/hooks/tenant/use-tenant-settings"
 import { useUsage } from "@/hooks/billing/use-usage"
+import { AlertPreferences } from "@/components/settings/alert-preferences"
 import { USE_MOCKS } from "@/lib/mocks"
 import type { TenantSettingsUpdate } from "@/services/tenant/tenant.service"
 
@@ -190,6 +191,8 @@ function Settings() {
               WhatsApp: {t.whatsapp_connected ? `connected${t.display_phone_number ? ` (${t.display_phone_number})` : ""}` : "not connected"}
             </p>
           </section>
+
+          <AlertPreferences />
 
           {u && (
             <section className="rounded-lg border border-border bg-card p-4">
