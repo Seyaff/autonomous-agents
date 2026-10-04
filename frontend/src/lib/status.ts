@@ -16,6 +16,9 @@ export type OrderStatus =
   // Drafted by the agent, waiting for the customer to tap Confirm. Not sent to the kitchen yet.
   | "awaiting_customer"
   | "expired"
+  | "choosing_payment"
+  | "awaiting_payment"
+  | "payment_expired"
 
 export const ORDER_STATUS_DISPLAY: Record<OrderStatus, { label: string; tone: ChipTone }> = {
   pending: { label: "New", tone: "new" },
@@ -26,6 +29,9 @@ export const ORDER_STATUS_DISPLAY: Record<OrderStatus, { label: string; tone: Ch
   cancelled: { label: "Cancelled", tone: "need" },
   awaiting_customer: { label: "Awaiting customer", tone: "neutral" },
   expired: { label: "Expired", tone: "neutral" },
+  choosing_payment: { label: "Choosing payment", tone: "neutral" },
+  awaiting_payment: { label: "Awaiting payment", tone: "neutral" },
+  payment_expired: { label: "Payment expired", tone: "need" },
 }
 
 // Message delivery status, as returned by the inbox endpoints.

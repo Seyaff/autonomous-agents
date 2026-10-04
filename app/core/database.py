@@ -96,6 +96,8 @@ async def ensure_webhook_indexes():
     await ensure_session_indexes(db)
     from services.email import ensure_email_indexes
     await ensure_email_indexes(db)
+    from services.online_payments import ensure_payment_indexes
+    await ensure_payment_indexes(db)
     await migrate_subscriptions(db)
     from services.alerts import ensure_alert_indexes
     await ensure_alert_indexes(db)

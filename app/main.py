@@ -50,10 +50,12 @@ async def lifespan(app: FastAPI):
     import asyncio
     asyncio.create_task(connect_redis_database_safe())
     billing_task = asyncio.create_task(billing_scheduler())
+    payments_task = asyncio.create_task(payment_expiry_loop())
 
     yield
     # Shutdown
     billing_task.cancel()
+    payments_task.cancel()
     await close_redis_connection()
     await close_mongo_connection()
 
@@ -71,6 +73,23 @@ def _warn_if_google_callback_is_off_domain():
             f"[google] GOOGLE_CALLBACK_URL ({callback}) is not on the app's address ({frontend}). "
             f"Set it to {frontend}/api/auth/google/callback, and register that address in Google Cloud Console."
         )
+
+
+async def payment_expiry_loop():
+    """Every minute: order payment links that ran out are offered cash on delivery instead."""
+    import asyncio
+    import logging
+    from core.database import get_database
+    from services.online_payments import expire_stale_payments
+
+    logger = logging.getLogger(__name__)
+    await asyncio.sleep(30)
+    while True:
+        try:
+            await expire_stale_payments(get_database())
+        except Exception as e:
+            logger.exception(f"[payments] expiry check failed: {e}")
+        await asyncio.sleep(60)
 
 
 async def billing_scheduler():
