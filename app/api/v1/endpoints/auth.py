@@ -341,7 +341,7 @@ async def login_with_google(request: Request):
 @auth_routes.get("/google/callback", name="google_callback_handler")
 async def google_callback_handler(request: Request, database=Depends(get_database)):
     """Handles callback from Google OAuth."""
-    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    frontend_url = settings.frontend_origin
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as e:
@@ -396,7 +396,7 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
     # Ensure next_param starts with /
     if not next_param.startswith("/"):
         next_param = "/" + next_param
-    redirect_target = f"{frontend_url}{next_param}"
+    redirect_target = f"{settings.frontend_origin}{next_param}"
 
     response = RedirectResponse(url=redirect_target)
     await _start_session(response, request, database, user_id)
