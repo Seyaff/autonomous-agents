@@ -9,11 +9,13 @@ The daily billing job: renewals, overdue invoices and cancellations (PRICING.md 
 """
 
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from services.billing import EXTRA_CHAT_PKR, PLANS, add_months, chats_used
 from services.invoices import DUE_DAYS, INVOICES, next_invoice_id, plan_fee_pkr
+from services import email as mail
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,8 @@ async def _create_renewal(db, tenant: Dict[str, Any], now: datetime) -> None:
         "updated_at": now,
     }
     await db[INVOICES].insert_one(invoice)
+    to, owner_tenant = await mail.owner_context(db, tenant_id)
+    mail.invoice_created(to, owner_tenant, invoice)
 
     await db["tenants"].update_one({"tenant_id": tenant_id}, {"$set": {
         "subscription.plan": next_plan,
@@ -113,14 +117,32 @@ async def run_billing_jobs(db, now: datetime | None = None) -> Dict[str, int]:
     async for invoice in overdue:
         tenant_id = invoice["tenant_id"]
         paused_at = _utc(invoice["due_at"]) + timedelta(days=PAUSE_AFTER_DUE_DAYS)
+        to, owner_tenant = await mail.owner_context(db, tenant_id)
         if now >= paused_at:
             await db["tenants"].update_one({"tenant_id": tenant_id, "subscription.status": {"$ne": "canceled"}},
                                            {"$set": {"subscription.status": "paused", "updated_at": now}})
+            mail.paused(to, owner_tenant, invoice)
             counts["paused"] += 1
         else:
             await db["tenants"].update_one({"tenant_id": tenant_id, "subscription.status": "active"},
                                            {"$set": {"subscription.status": "past_due", "updated_at": now}})
+            mail.past_due(to, owner_tenant, invoice)
             counts["past_due"] += 1
+
+    # 3. Trial reminders: three days and one day before the end, then once it has ended.
+    trialing = db["tenants"].find({"subscription.status": "trialing", "subscription.trial_ends_at": {"$lte": now + timedelta(days=3)}})
+    async for tenant in trialing:
+        ends = _utc(tenant["subscription"]["trial_ends_at"])
+        to, owner_tenant = await mail.owner_context(db, tenant["tenant_id"])
+        seconds_left = (ends - now).total_seconds()
+        if seconds_left <= 0:
+            mail.trial_ended(to, owner_tenant, tenant["tenant_id"])
+            counts["trial_ended"] = counts.get("trial_ended", 0) + 1
+            continue
+        days_left = math.ceil(seconds_left / 86400)
+        if days_left in (3, 1):
+            mail.trial_ending(to, owner_tenant, tenant["tenant_id"], days_left)
+            counts["trial_reminders"] = counts.get("trial_reminders", 0) + 1
 
     logger.info(f"[billing] daily job: {counts}")
     return counts

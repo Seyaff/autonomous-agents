@@ -10,6 +10,9 @@ from pydantic import BaseModel, EmailStr, Field
 from utils.jwt import generate_access_token
 from middlewares.auth_middleware import get_current_user as require_signed_in
 from services.sessions import create_session, revoke_all, revoke_session, rotate, hash_token, SESSIONS
+from services import email as mail
+from utils.jwt import verify_access_claims
+from typing import Optional
 from core.database import get_database
 from core.settings import settings
 from utils.cookie import (
@@ -59,8 +62,16 @@ class FounderBootstrapRequest(BaseModel):
 # ------------------ EMAIL / PASSWORD SIGNUP & LOGIN ------------------
 
 async def _start_session(response: Response, request: Request, db, user_id: str) -> str:
-    """Starts a session for a sign-in, sets the access and refresh cookies, and returns the access token."""
-    session, refresh = await create_session(db, user_id, request.headers.get("user-agent", ""))
+    """Starts a session for a sign-in, sets the access and refresh cookies, and returns the access token.
+    A sign-in from a device this account hasn't used before is reported by email."""
+    device = request.headers.get("user-agent", "")
+    seen_before = await db[SESSIONS].find_one({"user_id": user_id}, {"_id": 1})
+    same_device = await db[SESSIONS].find_one({"user_id": user_id, "user_agent": device[:300]}, {"_id": 1})
+    session, refresh = await create_session(db, user_id, device)
+    if seen_before and not same_device:
+        user = await db["users"].find_one({"user_id": user_id}, {"email": 1})
+        if user and user.get("email"):
+            mail.new_sign_in(user["email"], user_id, datetime.now(timezone.utc), device[:120])
     access_token = generate_access_token(user_id, session["session_id"])
     set_access_token_cookie(response=response, token=access_token)
     set_refresh_token_cookie(response=response, token=refresh)
@@ -98,6 +109,7 @@ async def signup_with_email(payload: EmailSignupRequest, request: Request, respo
     }
 
     await users.insert_one(new_user)
+    mail.welcome(new_user["email"], new_user["full_name"], user_id)
 
     access_token = await _start_session(response, request, db, user_id)
 
@@ -358,6 +370,7 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
             "updated_at": datetime.now(timezone.utc),
         }
         await users.insert_one(new_user)
+        mail.welcome(email, name or email, user_id)
         user = new_user
     else:
         user_id = user["user_id"]
@@ -381,3 +394,69 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
     response = RedirectResponse(url=redirect_target)
     await _start_session(response, request, database, user_id)
     return response
+
+def _current_session_id(request: Request) -> Optional[str]:
+    token = request.cookies.get("access_token")
+    if not token:
+        return None
+    try:
+        return verify_access_claims(token).get("sid")
+    except Exception:
+        return None
+
+
+@auth_routes.get("/sessions")
+async def list_sessions(
+    request: Request,
+    current_user: dict = Depends(require_signed_in),
+    db=Depends(get_database),
+):
+    """Devices signed in to this account. The current one is marked."""
+    current = _current_session_id(request)
+    docs = await db[SESSIONS].find(
+        {"user_id": current_user["user_id"], "revoked_at": None},
+        {"_id": 0, "session_id": 1, "user_agent": 1, "created_at": 1, "last_used_at": 1},
+    ).sort("last_used_at", -1).to_list(length=50)
+    return {"sessions": [{**d, "current": d["session_id"] == current} for d in docs]}
+
+
+@auth_routes.delete("/sessions/{session_id}")
+async def sign_out_device(
+    session_id: str,
+    current_user: dict = Depends(require_signed_in),
+    db=Depends(get_database),
+):
+    """Signs out one device. Only this account's own sessions can be ended."""
+    session = await db[SESSIONS].find_one({"session_id": session_id, "user_id": current_user["user_id"]}, {"revoked_at": 1})
+    if session is None or session.get("revoked_at") is not None:
+        raise HTTPException(status_code=404, detail="That device isn't signed in.")
+    await revoke_session(db, session_id, reason="signed_out_device")
+    return {"status": "signed_out"}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+@auth_routes.post("/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    current_user: dict = Depends(require_signed_in),
+    db=Depends(get_database),
+):
+    """Changes the password and signs out every other device. This device stays signed in."""
+    user = await db["users"].find_one({"user_id": current_user["user_id"]}, {"password": 1, "email": 1})
+    if not user or not bcrypt.checkpw(payload.current_password.encode("utf-8"), user["password"].encode("utf-8")):
+        raise HTTPException(status_code=400, detail="Your current password isn't right.")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=400, detail="Choose a different password.")
+
+    new_hash = bcrypt.hashpw(payload.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    now = datetime.now(timezone.utc)
+    await db["users"].update_one({"user_id": current_user["user_id"]}, {"$set": {"password": new_hash, "updated_at": now}})
+    await revoke_all(db, current_user["user_id"], except_session_id=_current_session_id(request), reason="password_changed")
+    if user.get("email"):
+        mail.password_changed(user["email"], current_user["user_id"], now)
+    return {"status": "success", "message": "Password changed. Other devices were signed out."}

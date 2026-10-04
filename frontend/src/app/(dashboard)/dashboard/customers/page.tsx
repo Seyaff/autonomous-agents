@@ -11,6 +11,7 @@ import { useCurrentTenant } from "@/hooks/tenant/use-current-tenant"
 import { formatMoney } from "@/lib/currency"
 import { USE_MOCKS } from "@/lib/mocks"
 import { getCustomer, listCustomers, type CustomerDetail } from "@/services/customers/customers.service"
+import { CustomerFactsEditor } from "@/components/customers/customer-facts-editor"
 
 function when(iso: string | null) {
   if (!iso) return "—"
@@ -141,23 +142,7 @@ function CustomerBody({ d, currency }: { d: CustomerDetail; currency: string }) 
         )}
       </section>
 
-      <section className="space-y-2">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-          What the agent remembers
-        </h2>
-        {c.facts.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing noted yet. Preferences and allergies appear here as customers mention them.</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {c.facts.map((f) => (
-              <li key={`${f.kind}-${f.key}`} className="text-sm">
-                <span className="mr-2 font-mono text-[11px] uppercase text-muted-foreground">{f.kind}</span>
-                {f.value}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <CustomerFactsEditor phone={c.customer_phone} />
 
       <section className="space-y-2">
         <h2 className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">Recent orders</h2>

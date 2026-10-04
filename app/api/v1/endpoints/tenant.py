@@ -189,6 +189,9 @@ async def create_tenant(
     }
 
     await db.tenants.insert_one(tenant_doc)
+    if settings.FOUNDER_EMAIL:
+        from services import email as mail
+        mail.founder_new_restaurant(settings.FOUNDER_EMAIL, tenant_doc, current_user.get("full_name") or current_user.get("email") or "an owner")
 
     await db.users.update_one(
         {"user_id": user_custom_id},

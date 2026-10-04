@@ -10,6 +10,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from services import email as mail
 from services.invoices import (
     create_subscription_invoice,
     create_upgrade_invoice,
@@ -256,10 +257,15 @@ async def change_plan(
         paid, error = await pay_open_invoice(db, invoice)
         if error:
             return _payment_failed(error, invoice)
+        to, owner_tenant = await mail.owner_context(db, tenant_id)
+        mail.plan_changed(to, owner_tenant, PLANS[body.plan]["name"], None, paid["invoice_id"])
         return {"invoice": paid, "subscription": await _subscription_of(db, tenant_id)}
 
     # Downgrade: the lower plan starts at the next renewal.
     await db["tenants"].update_one({"tenant_id": tenant_id}, {"$set": {"subscription.pending_plan": body.plan}})
+    to, owner_tenant = await mail.owner_context(db, tenant_id)
+    starts = (await _subscription_of(db, tenant_id)).get("current_period_end")
+    mail.plan_changed(to, owner_tenant, PLANS[body.plan]["name"], str(starts) if starts else None, None)
     return {"invoice": None, "subscription": await _subscription_of(db, tenant_id)}
 
 
@@ -274,6 +280,8 @@ async def cancel_subscription(
     if sub.get("status") not in ("active", "past_due"):
         raise HTTPException(status_code=409, detail="There's no active plan to cancel.")
     await db["tenants"].update_one({"tenant_id": tenant_id}, {"$set": {"subscription.cancel_at_period_end": True}})
+    to, owner_tenant = await mail.owner_context(db, tenant_id)
+    mail.subscription_canceled(to, owner_tenant, tenant_id, str(sub.get("current_period_end")) if sub.get("current_period_end") else None)
     return {"subscription": await _subscription_of(db, tenant_id)}
 
 

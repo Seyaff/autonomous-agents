@@ -46,6 +46,17 @@ def test_unknown_payments_provider_is_refused(monkeypatch):
         get_payment_provider()
 
 
+class _NoRows:
+    async def find_one(self, *_, **__):
+        return None
+
+
+class EmptyDB(dict):
+    """A failed payment only looks up the owner to email them, so an empty database is enough."""
+    def __getitem__(self, name):
+        return _NoRows()
+
+
 def test_failed_payment_leaves_the_invoice_open(monkeypatch):
     class FailingProvider:
         name = "failing"
@@ -54,7 +65,6 @@ def test_failed_payment_leaves_the_invoice_open(monkeypatch):
             return PaymentResult(ok=False, error="Card declined.")
 
     monkeypatch.setattr(invoices_module, "get_payment_provider", lambda: FailingProvider())
-    # A failed payment never touches the database, so no db is needed here.
-    paid, error = asyncio.run(pay_open_invoice(None, {"invoice_id": "INV-2026-000001", "tenant_id": "t1"}))
+    paid, error = asyncio.run(pay_open_invoice(EmptyDB(), {"invoice_id": "INV-2026-000001", "tenant_id": "t1"}))
     assert paid is None
     assert error == "Card declined."
