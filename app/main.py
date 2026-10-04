@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
     # Connect to MongoDB (required)
     await connect_to_mongo()
     await ensure_webhook_indexes()
+    _warn_if_google_callback_is_off_domain()
     await verify_webhook_indexes()
     
     # Connect Redis in background (non-blocking for health checks)
@@ -55,6 +56,21 @@ async def lifespan(app: FastAPI):
     billing_task.cancel()
     await close_redis_connection()
     await close_mongo_connection()
+
+
+def _warn_if_google_callback_is_off_domain():
+    """Google sign-in only works when the callback is on the same site as the app (the Vercel address).
+    A callback on the API's own domain loses the sign-in state, and every Google sign-in fails."""
+    import logging
+    from core.settings import settings
+
+    callback = settings.GOOGLE_CALLBACK_URL or ""
+    frontend = (settings.FRONTEND_URL or "").rstrip("/")
+    if settings.GOOGLE_CLIENT_ID and frontend and not callback.startswith(frontend):
+        logging.getLogger(__name__).warning(
+            f"[google] GOOGLE_CALLBACK_URL ({callback}) is not on the app's address ({frontend}). "
+            f"Set it to {frontend}/api/auth/google/callback, and register that address in Google Cloud Console."
+        )
 
 
 async def billing_scheduler():
