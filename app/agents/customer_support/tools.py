@@ -13,6 +13,7 @@ from services.alerts import raise_alert
 from services.order_service import compute_totals, initial_status_entry
 from services.order_confirmation import AWAITING, find_awaiting, send_summary
 from services.availability import is_sold_out, sold_out_names
+from services.menu_view import menu_text
 from core.setup_state import hours_status
 from core.settings import settings
 from core.events import broadcast_order_update
@@ -35,6 +36,23 @@ async def search_uploaded_documents(query: str, config: RunnableConfig) -> str:
         return "System notice: Restaurant tenant ID missing from context. Cannot query menu."
 
     return await search_tenant_knowledge(query=query, tenant_id=tenant_id, top_k=4)
+
+
+@tool
+async def get_menu(category: Optional[str] = None, config: RunnableConfig = None) -> str:
+    """Returns the restaurant's dish list, grouped by category, with prices. Use it for any question
+    about which dishes there are or what they cost. Pass a category name to narrow it down.
+    """
+    configurable = (config or {}).get("configurable", {})
+    tenant_id = configurable.get("tenant_id")
+    if not tenant_id:
+        return "System notice: Restaurant tenant ID missing from context. Cannot read the menu."
+    db = get_database()
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+    text = await menu_text(db, tenant, category)
+    if not text:
+        return "The dish list isn't set up yet. Use search_uploaded_documents for menu details."
+    return text
 
 
 @tool

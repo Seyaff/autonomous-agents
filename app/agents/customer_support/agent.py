@@ -21,6 +21,7 @@ from services.availability import sold_out_names
 from services.alerts import raise_alert
 from agents.customer_support.prompt import compile_customer_support_prompt
 from agents.customer_support.tools import (
+    get_menu,
     search_uploaded_documents,
     create_order_tool,
     get_order_status_tool,
@@ -51,6 +52,7 @@ ERROR_REPLY = (
 model = get_chat_model(purpose="customer_support", temperature=0.1)
 
 tools = [
+    get_menu,
     search_uploaded_documents,
     create_order_tool,
     get_order_status_tool,

@@ -78,6 +78,8 @@ export interface MenuItem {
   price: number | null
   description: string
   sold_out_today: boolean
+  hidden: boolean
+  id: string
 }
 
 export const getMenuItems = async (): Promise<{ items: MenuItem[]; source_filename: string | null }> => {
