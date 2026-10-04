@@ -30,6 +30,8 @@ export function LoginForm({
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [challenge, setChallenge] = useState<string | null>(null)
+  const [code, setCode] = useState("")
   const queryClient = useQueryClient()
 
   const handleEmailLogin = async (e: React.FormEvent) => {
@@ -39,6 +41,10 @@ export function LoginForm({
 
     try {
       const res = await API.post("/auth/login", { email, password })
+      if (res.data.status === "2fa_required") {
+        setChallenge(res.data.challenge)
+        return
+      }
       if (res.data.status === "success") {
         // Load the new session first, so the gate doesn't act on the old "signed out" state.
         const me = await queryClient.fetchQuery({ queryKey: ["me"], queryFn: getUserQuery, staleTime: 0 })
@@ -50,6 +56,47 @@ export function LoginForm({
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleCode = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    try {
+      await API.post("/auth/2fa/verify", { challenge, code })
+      const me = await queryClient.fetchQuery({ queryKey: ["me"], queryFn: getUserQuery, staleTime: 0 })
+      router.push(me?.is_onboarded ? "/dashboard" : next)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "That code isn't right.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (challenge) {
+    return (
+      <form onSubmit={handleCode} className="space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-base font-medium">Enter your code</h2>
+          <p className="text-sm text-muted-foreground">
+            Open your authenticator app and enter the 6-digit code. You can also use one of your recovery codes.
+          </p>
+        </div>
+        <Input
+          id="two-factor-code"
+          aria-label="Authenticator code"
+          autoComplete="one-time-code"
+          inputMode="text"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="123456"
+        />
+        {error && <p className="text-sm text-need">{error}</p>}
+        <Button type="submit" className="w-full" disabled={loading || code.trim().length < 6}>
+          {loading ? "Checking…" : "Continue"}
+        </Button>
+      </form>
+    )
   }
 
   const handleGoogleLogin = () => {

@@ -30,3 +30,19 @@ export const changePassword = async (currentPassword: string, newPassword: strin
   })
   return res.data
 }
+
+export interface TwoFactorStatus {
+  enabled: boolean
+  recovery_codes_left: number
+}
+
+export const twoFactorStatus = async (): Promise<TwoFactorStatus> => (await API.get("/auth/2fa/status")).data
+
+export const startTwoFactor = async (): Promise<{ secret: string; otpauth_uri: string }> =>
+  (await API.post("/auth/2fa/setup")).data
+
+export const enableTwoFactor = async (code: string): Promise<{ recovery_codes: string[] }> =>
+  (await API.post("/auth/2fa/enable", { code })).data
+
+export const disableTwoFactor = async (password: string, code: string) =>
+  (await API.post("/auth/2fa/disable", { password, code })).data

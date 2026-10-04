@@ -33,6 +33,7 @@ dependencies = [
     "pyjwt>=2.15.0",
     "pymongo>=4.18.1",
     "pymupdf>=1.28.2",
+    "pyotp>=2.10.0",
     "pypdf>=6.19.0",
     "python-multipart>=0.0.32",
     "structlog>=26.1.0",
