@@ -1,10 +1,13 @@
 from datetime import datetime, timezone
 
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from core.database import get_database
 from middlewares.auth_middleware import require_owner
-from services.alerts import serialize
+from services.alerts import ALERT_KINDS, serialize, whatsapp_kinds_for
 
 alert_router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
@@ -65,3 +68,40 @@ async def mark_read(
         {"$set": {"read_at": datetime.now(timezone.utc)}},
     )
     return {"status": "success", "marked": res.modified_count}
+
+
+class AlertPreferences(BaseModel):
+    whatsapp_kinds: List[str]
+
+
+@alert_router.get("/preferences")
+async def get_alert_preferences(
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    """Which alerts the owner gets on WhatsApp. Everything else only shows in the dashboard."""
+    tenant_id = _tenant(current_user)
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"business_phone": 1, "alert_whatsapp_kinds": 1}) or {}
+    chosen = set(whatsapp_kinds_for(tenant))
+    return {
+        "owner_phone": tenant.get("business_phone"),
+        "kinds": [
+            {"kind": kind, "label": info["label"], "description": info["description"], "whatsapp": kind in chosen}
+            for kind, info in ALERT_KINDS.items()
+        ],
+    }
+
+
+@alert_router.put("/preferences")
+async def set_alert_preferences(
+    payload: AlertPreferences,
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    tenant_id = _tenant(current_user)
+    unknown = [k for k in payload.whatsapp_kinds if k not in ALERT_KINDS]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown alert kinds: {', '.join(unknown)}")
+    kinds = sorted(set(payload.whatsapp_kinds))
+    await db["tenants"].update_one({"tenant_id": tenant_id}, {"$set": {"alert_whatsapp_kinds": kinds, "updated_at": datetime.now(timezone.utc)}})
+    return {"whatsapp_kinds": kinds}
