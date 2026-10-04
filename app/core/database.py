@@ -92,6 +92,8 @@ async def ensure_webhook_indexes():
     await ensure_fact_indexes(db)
     from services.billing import ensure_billing_indexes, migrate_subscriptions
     await ensure_billing_indexes(db)
+    from services.sessions import ensure_session_indexes
+    await ensure_session_indexes(db)
     await migrate_subscriptions(db)
     from services.alerts import ensure_alert_indexes
     await ensure_alert_indexes(db)

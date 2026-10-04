@@ -8,9 +8,17 @@ from authlib.integrations.starlette_client import OAuth
 from pydantic import BaseModel, EmailStr, Field
 
 from utils.jwt import generate_access_token
+from middlewares.auth_middleware import get_current_user as require_signed_in
+from services.sessions import create_session, revoke_all, revoke_session, rotate, hash_token, SESSIONS
 from core.database import get_database
 from core.settings import settings
-from utils.cookie import set_access_token_cookie
+from utils.cookie import (
+    REFRESH_COOKIE,
+    clear_access_token_cookie,
+    clear_refresh_token_cookie,
+    set_access_token_cookie,
+    set_refresh_token_cookie,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +58,17 @@ class FounderBootstrapRequest(BaseModel):
 
 # ------------------ EMAIL / PASSWORD SIGNUP & LOGIN ------------------
 
+async def _start_session(response: Response, request: Request, db, user_id: str) -> str:
+    """Starts a session for a sign-in, sets the access and refresh cookies, and returns the access token."""
+    session, refresh = await create_session(db, user_id, request.headers.get("user-agent", ""))
+    access_token = generate_access_token(user_id, session["session_id"])
+    set_access_token_cookie(response=response, token=access_token)
+    set_refresh_token_cookie(response=response, token=refresh)
+    return access_token
+
+
 @auth_routes.post("/signup")
-async def signup_with_email(payload: EmailSignupRequest, response: Response, db=Depends(get_database)):
+async def signup_with_email(payload: EmailSignupRequest, request: Request, response: Response, db=Depends(get_database)):
     """Registers a new restaurant owner or user with email and hashed password."""
     email_clean = payload.email.strip().lower()
     users = db["users"]
@@ -82,8 +99,7 @@ async def signup_with_email(payload: EmailSignupRequest, response: Response, db=
 
     await users.insert_one(new_user)
 
-    access_token = generate_access_token(user_id)
-    set_access_token_cookie(response=response, token=access_token)
+    access_token = await _start_session(response, request, db, user_id)
 
     return {
         "status": "success",
@@ -100,7 +116,7 @@ async def signup_with_email(payload: EmailSignupRequest, response: Response, db=
 
 
 @auth_routes.post("/login")
-async def login_with_email(payload: EmailLoginRequest, response: Response, db=Depends(get_database)):
+async def login_with_email(payload: EmailLoginRequest, request: Request, response: Response, db=Depends(get_database)):
     """Logs in an existing user with email and password."""
     email_clean = payload.email.strip().lower()
     users = db["users"]
@@ -126,8 +142,7 @@ async def login_with_email(payload: EmailLoginRequest, response: Response, db=De
         {"$set": {"last_login": datetime.now(timezone.utc)}}
     )
 
-    access_token = generate_access_token(user_id)
-    set_access_token_cookie(response=response, token=access_token)
+    access_token = await _start_session(response, request, db, user_id)
 
     return {
         "status": "success",
@@ -146,7 +161,7 @@ async def login_with_email(payload: EmailLoginRequest, response: Response, db=De
 
 @auth_routes.post("/bootstrap-founder")
 async def bootstrap_founder(
-    payload: FounderBootstrapRequest, response: Response, db=Depends(get_database)
+    payload: FounderBootstrapRequest, request: Request, response: Response, db=Depends(get_database)
 ):
     """
     One-time setup route that creates the single FOUNDER account. There is
@@ -196,8 +211,7 @@ async def bootstrap_founder(
     }
     await users.insert_one(new_user)
 
-    access_token = generate_access_token(user_id)
-    set_access_token_cookie(response=response, token=access_token)
+    access_token = await _start_session(response, request, db, user_id)
 
     return {
         "status": "success",
@@ -212,12 +226,51 @@ async def bootstrap_founder(
     }
 
 
+@auth_routes.post("/refresh")
+async def refresh_session(request: Request, response: Response, db=Depends(get_database)):
+    """Trades the refresh cookie for a new access token and a new refresh token.
+    The browser calls this when its access token has run out. Nothing else is needed."""
+    refresh = request.cookies.get(REFRESH_COOKIE)
+    if not refresh:
+        clear_access_token_cookie(response)
+        raise HTTPException(status_code=401, detail="Not signed in.")
+
+    session, new_refresh, problem = await rotate(db, refresh)
+    if problem:
+        clear_access_token_cookie(response)
+        clear_refresh_token_cookie(response)
+        detail = "Your session was signed out on another device. Please sign in again." if problem == "reused" else "Your session has ended. Please sign in again."
+        raise HTTPException(status_code=401, detail=detail)
+
+    set_access_token_cookie(response=response, token=generate_access_token(session["user_id"], session["session_id"]))
+    set_refresh_token_cookie(response=response, token=new_refresh)
+    return {"status": "success"}
+
+
 @auth_routes.post("/logout")
-async def logout(response: Response):
-    """Logs out user by clearing the access token cookie."""
-    from utils.cookie import clear_access_token_cookie
+async def logout(request: Request, response: Response, db=Depends(get_database)):
+    """Signs out this device only. The session stops working at once."""
+    refresh = request.cookies.get(REFRESH_COOKIE)
+    if refresh:
+        session = await db[SESSIONS].find_one({"refresh_hash": hash_token(refresh)}, {"session_id": 1})
+        if session:
+            await revoke_session(db, session["session_id"], reason="signed_out")
     clear_access_token_cookie(response)
+    clear_refresh_token_cookie(response)
     return {"status": "success", "message": "Logged out successfully."}
+
+
+@auth_routes.post("/logout-all")
+async def logout_everywhere(
+    response: Response,
+    current_user: dict = Depends(require_signed_in),
+    db=Depends(get_database),
+):
+    """Signs out every device, including this one."""
+    await revoke_all(db, current_user["user_id"], reason="signed_out_everywhere")
+    clear_access_token_cookie(response)
+    clear_refresh_token_cookie(response)
+    return {"status": "success", "message": "Signed out everywhere."}
 
 
 @auth_routes.get("/me")
@@ -319,7 +372,6 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
     # Get next parameter from state (passed through OAuth flow)
     next_param = request.query_params.get("state") or request.query_params.get("next", "/setup" if not is_onboarded else "/dashboard")
     
-    access_token = generate_access_token(user_id)
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
     # Ensure next_param starts with /
     if not next_param.startswith("/"):
@@ -327,5 +379,5 @@ async def google_callback_handler(request: Request, database=Depends(get_databas
     redirect_target = f"{frontend_url}{next_param}"
 
     response = RedirectResponse(url=redirect_target)
-    set_access_token_cookie(response=response, token=access_token)
+    await _start_session(response, request, database, user_id)
     return response

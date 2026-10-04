@@ -30,6 +30,24 @@ API.interceptors.request.use(
   (error) => Promise.reject(error)
 )
 
+// Only one refresh runs at a time. Requests that fail meanwhile wait for it, then retry.
+let refreshing: Promise<boolean> | null = null
+const NO_REFRESH = /\/auth\/(login|signup|refresh|logout|logout-all|google)/
+
+function refreshSession(): Promise<boolean> {
+  if (!refreshing) {
+    // A plain axios call, so this refresh never goes through the interceptors below.
+    refreshing = axios
+      .post("/api/auth/refresh", null, { withCredentials: true, timeout: 30000 })
+      .then(() => true)
+      .catch(() => false)
+      .finally(() => {
+        refreshing = null
+      })
+  }
+  return refreshing
+}
+
 API.interceptors.response.use(
   (response) => {
     if (process.env.NODE_ENV === "development") {
@@ -37,7 +55,7 @@ API.interceptors.response.use(
     }
     return response
   },
-  (error) => {
+  async (error) => {
     const requestId = error.config?.headers?.["X-Request-ID"] || "unknown"
     const message =
       error.response?.data?.detail ||
@@ -46,6 +64,15 @@ API.interceptors.response.use(
       "Request failed"
 
     const status = error.response?.status
+
+    // An expired access token is renewed once from the refresh cookie, then the request is retried.
+    if (status === 401 && error.config && !error.config._retried && !NO_REFRESH.test(error.config.url ?? "")) {
+      if (await refreshSession()) {
+        error.config._retried = true
+        return API.request(error.config)
+      }
+    }
+
     const currentPath =
       typeof window !== "undefined" ? window.location.pathname : ""
     const isAuthEndpoint = error.config?.url?.includes("/auth/")

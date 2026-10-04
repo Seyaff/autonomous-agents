@@ -50,6 +50,7 @@ def fake_oauth(userinfo):
 def db():
     fake = FakeDB()
     fake["users"] = FakeCollection()
+    fake["sessions"] = FakeCollection()
     app.dependency_overrides[get_database] = lambda: fake
     yield fake
     app.dependency_overrides.clear()

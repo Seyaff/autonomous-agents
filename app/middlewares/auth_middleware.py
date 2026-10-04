@@ -4,7 +4,8 @@ import jwt
 from fastapi import Request, Depends, HTTPException, status
 
 from core.database import get_database
-from utils.jwt import verify_jwt_token
+from utils.jwt import verify_access_claims
+from services.sessions import is_active
 
 
 async def _resolve_user_from_token(token: Optional[str], database) -> dict:
@@ -15,7 +16,7 @@ async def _resolve_user_from_token(token: Optional[str], database) -> dict:
         )
 
     try:
-        user_id = verify_jwt_token(token)
+        claims = verify_access_claims(token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -27,6 +28,16 @@ async def _resolve_user_from_token(token: Optional[str], database) -> dict:
             detail="Could not validate credentials",
         )
 
+    # A token from a session that was signed out stops working at once. Tokens issued
+    # before sessions existed have no session id, and keep working until they expire.
+    session_id = claims.get("sid")
+    if session_id and not await is_active(database, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session ended. Please sign in again.",
+        )
+
+    user_id = claims["sub"]
     user = await database["users"].find_one({"user_id": user_id})
     if not user:
         raise HTTPException(
