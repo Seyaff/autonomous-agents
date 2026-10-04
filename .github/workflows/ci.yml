@@ -14,6 +14,17 @@ jobs:
     defaults:
       run:
         working-directory: app
+    # Placeholder values only. The tests use fake databases and fake services, so none of these are called.
+    env:
+      MONGO_URI: mongodb://ci-placeholder:27017
+      DATABASE_NAME: ci-placeholder
+      REDIS_URI: redis://ci-placeholder:6379
+      PINECONE_API_KEY: ci-placeholder
+      HF_TOKEN: ci-placeholder
+      META_VERIFY_TOKEN: ci-placeholder
+      WHATSAPP_TOKEN: ci-placeholder
+      WHATSAPP_PHONE_NUMBER_ID: "000000000000000"
+      WHATSAPP_BUSINESS_ACCOUNT_ID: "000000000000000"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
