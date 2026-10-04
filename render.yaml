@@ -3,7 +3,7 @@ services:
     name: siyaf-backend
     runtime: python
     buildCommand: "cd app && uv sync --frozen"
-    startCommand: "cd app && uv run uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"
+    startCommand: "cd app && uv run uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-graceful-shutdown 25"
     envVars:
       - key: PYTHON_VERSION
         value: 3.12
