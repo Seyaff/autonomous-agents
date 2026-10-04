@@ -49,7 +49,7 @@ export function SignupForm({
         router.push("/setup")
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Could not complete signup. Please try again.")
+      setError(err.response ? err.response.data?.detail || "Could not complete signup. Please try again." : "The server is taking too long to respond. Wait a minute and try again. If you just signed up, your account was probably created, so log in.")
     } finally {
       setLoading(false)
     }

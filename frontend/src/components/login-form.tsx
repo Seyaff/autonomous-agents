@@ -52,7 +52,7 @@ export function LoginForm({
         router.push(isOnboarded ? "/dashboard" : next)
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Invalid email or password.")
+      setError(err.response ? err.response.data?.detail || "Invalid email or password." : "The server is taking too long to respond. Wait a minute and try again. If you just signed up, your account was probably created, so log in.")
     } finally {
       setLoading(false)
     }

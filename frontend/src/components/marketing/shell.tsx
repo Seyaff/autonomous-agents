@@ -34,7 +34,7 @@ export function MarketingFooter() {
 
 export function MarketingMain({ children }: { children: React.ReactNode }) {
   return (
-    <main className="mx-auto flex min-h-svh max-w-[760px] flex-col gap-10 px-5 py-12 text-foreground">
+    <main className="mx-auto flex min-h-svh w-full max-w-[760px] flex-col gap-10 px-5 py-12 text-foreground">
       {children}
     </main>
   )
