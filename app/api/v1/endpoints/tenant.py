@@ -446,21 +446,66 @@ async def set_sold_out(
 # ---------------------------------------------------------------------------
 # Meta embedded signup
 # ---------------------------------------------------------------------------
+async def _record_whatsapp_failure(db, tenant_id: str, message: str, status_code: int = 400) -> None:
+    """Marks the restaurant as errored with the reason, so the owner sees it, then raises."""
+    logger.warning(f"[whatsapp-connect] failed tenant={tenant_id} status={status_code}: {message}")
+    await db.tenants.update_one(
+        {"tenant_id": tenant_id},
+        {"$set": {
+            "whatsapp_status": "error",
+            "whatsapp_last_error": message,
+            "whatsapp_checked_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    raise HTTPException(status_code=status_code, detail=message)
+
+
+async def _connect_whatsapp_number(db, tenant_id: str, token: str, phone_number_id: str, waba_id: str) -> Dict[str, Any]:
+    """Every step must pass before the restaurant is connected: the number isn't used by another
+    restaurant, the token can read the number, and the business account is subscribed to our webhook.
+    Nothing falls back to shared credentials."""
+    other = await db.tenants.find_one(
+        {"phone_number_id": phone_number_id, "tenant_id": {"$ne": tenant_id}},
+        {"tenant_id": 1},
+    )
+    if other:
+        await _record_whatsapp_failure(db, tenant_id, "This number is already connected to another restaurant.", 409)
+
+    try:
+        details = await verify_phone_number(token, phone_number_id)
+        logger.info(f"[whatsapp-connect] number verified tenant={tenant_id} display={details.get('display_phone_number')}")
+        await subscribe_business_account(token, waba_id)
+        logger.info(f"[whatsapp-connect] waba subscribed tenant={tenant_id}")
+    except ValueError as e:
+        await _record_whatsapp_failure(db, tenant_id, str(e))
+
+    now = datetime.now(timezone.utc)
+    await db.tenants.update_one(
+        {"tenant_id": tenant_id},
+        {"$set": {
+            "whatsapp_business_id": waba_id,
+            "phone_number_id": phone_number_id,
+            "whatsapp_access_token": protect(token),
+            "whatsapp_connected": True,
+            "whatsapp_status": "connected",
+            "whatsapp_last_error": None,
+            "whatsapp_checked_at": now,
+            "display_phone_number": details.get("display_phone_number"),
+            "verified_name": details.get("verified_name"),
+            "updated_at": now,
+        }},
+    )
+    return details
+
+
 @tenant_routes.post("/meta-embedded-signup")
 async def connect_meta_whatsapp(
     payload: MetaEmbeddedSignupPayload,
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """
-    Connects this restaurant's own WhatsApp number.
-
-    Every step must succeed: exchange the signup code for a token, check the token
-    can read the number, check the number isn't used by another restaurant, and
-    subscribe the business account to our webhook. If any step fails, nothing falls
-    back to shared credentials. The restaurant is marked as errored with the reason,
-    so the owner sees it.
-    """
+    """Connects this restaurant's number through the Meta Embedded Signup popup."""
     tenant_id = current_user.get("active_tenant_id")
     logger.info(
         f"[meta-signup] start tenant={tenant_id} waba={payload.waba_id} "
@@ -472,7 +517,7 @@ async def connect_meta_whatsapp(
     if not (settings.META_APP_ID and settings.META_APP_SECRET):
         raise HTTPException(
             status_code=503,
-            detail="WhatsApp connection isn't set up on the server yet. Use the shared test number for now.",
+            detail="WhatsApp connection isn't set up on the server yet. Ask the team to finish the Meta setup.",
         )
     if not payload.phone_number_id or not payload.waba_id:
         raise HTTPException(
@@ -480,61 +525,54 @@ async def connect_meta_whatsapp(
             detail="Meta didn't return the phone number or business account. Try connecting again.",
         )
 
-    async def fail(message: str, status_code: int = 400):
-        logger.warning(f"[meta-signup] failed tenant={tenant_id} status={status_code}: {message}")
-        await db.tenants.update_one(
-            {"tenant_id": tenant_id},
-            {"$set": {
-                "whatsapp_status": "error",
-                "whatsapp_last_error": message,
-                "whatsapp_checked_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc),
-            }},
-        )
-        raise HTTPException(status_code=status_code, detail=message)
-
     token = await _exchange_signup_code(payload.code)
     if not token:
-        await fail("Meta didn't accept the signup. Try connecting again.")
+        await _record_whatsapp_failure(db, tenant_id, "Meta didn't accept the signup. Try connecting again.")
     logger.info(f"[meta-signup] code exchanged tenant={tenant_id}")
 
-    other = await db.tenants.find_one(
-        {"phone_number_id": payload.phone_number_id, "tenant_id": {"$ne": tenant_id}},
-        {"tenant_id": 1},
-    )
-    if other:
-        await fail("This number is already connected to another restaurant.", status_code=409)
-
-    try:
-        details = await verify_phone_number(token, payload.phone_number_id)
-        logger.info(f"[meta-signup] number verified tenant={tenant_id} display={details.get('display_phone_number')}")
-        await subscribe_business_account(token, payload.waba_id)
-        logger.info(f"[meta-signup] waba subscribed tenant={tenant_id}")
-    except ValueError as e:
-        await fail(str(e))
-
-    now = datetime.now(timezone.utc)
-    await db.tenants.update_one(
-        {"tenant_id": tenant_id},
-        {"$set": {
-            "whatsapp_business_id": payload.waba_id,
-            "phone_number_id": payload.phone_number_id,
-            "whatsapp_access_token": protect(token),
-            "whatsapp_connected": True,
-            "whatsapp_status": "connected",
-            "whatsapp_last_error": None,
-            "whatsapp_checked_at": now,
-            "display_phone_number": details.get("display_phone_number"),
-            "verified_name": details.get("verified_name"),
-            "updated_at": now,
-        }},
-    )
-
+    details = await _connect_whatsapp_number(db, tenant_id, token, payload.phone_number_id, payload.waba_id)
     return {
         "status": "success",
         "message": "WhatsApp connected.",
         "phone_number_id": payload.phone_number_id,
         "waba_id": payload.waba_id,
+        "display_phone_number": details.get("display_phone_number"),
+        "verified_name": details.get("verified_name"),
+    }
+
+
+class ManualWhatsAppPayload(BaseModel):
+    phone_number_id: str = Field(..., min_length=5, max_length=40)
+    waba_id: str = Field(..., min_length=5, max_length=40)
+    access_token: str = Field(..., min_length=20, max_length=2000)
+
+
+@tenant_routes.post("/whatsapp/manual")
+async def connect_whatsapp_manually(
+    payload: ManualWhatsAppPayload,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """Connects the number from the details the owner copies out of Meta Business Manager.
+    The token is checked against Meta, then stored encrypted, the same as the popup route."""
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Create a restaurant profile first.")
+
+    phone_number_id = payload.phone_number_id.strip()
+    waba_id = payload.waba_id.strip()
+    token = payload.access_token.strip()
+    if not phone_number_id.isdigit() or not waba_id.isdigit():
+        await _record_whatsapp_failure(
+            db, tenant_id, "The phone number ID and business account ID are numbers. Copy them from Meta again."
+        )
+
+    details = await _connect_whatsapp_number(db, tenant_id, token, phone_number_id, waba_id)
+    return {
+        "status": "success",
+        "message": "WhatsApp connected.",
+        "phone_number_id": phone_number_id,
+        "waba_id": waba_id,
         "display_phone_number": details.get("display_phone_number"),
         "verified_name": details.get("verified_name"),
     }

@@ -8,7 +8,7 @@ import { CheckCircle2Icon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog"
-import { MetaEmbeddedSignup } from "@/components/MetaEmbeddedSignup"
+import { WhatsAppConnectOptions } from "@/components/whatsapp/whatsapp-connect-options"
 import { useAuth } from "@/components/providers/auth-provider"
 import { useSetupState, SETUP_QUERY_KEY } from "@/hooks/setup/use-setup-state"
 import { useSetupStep } from "@/hooks/setup/use-setup-step"
@@ -64,7 +64,7 @@ export function WhatsAppStep() {
             <li>A phone number that can receive an SMS or a call</li>
             <li>Your business name, and a website or Facebook page</li>
           </ul>
-          <MetaEmbeddedSignup
+          <WhatsAppConnectOptions
             next="/setup/whatsapp"
             onSuccess={markConnected}
             onError={(message) => setError(message)}

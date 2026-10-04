@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
 import { LiveOnly } from "@/components/dashboard/live-only"
 import { Badge } from "@/components/ui/badge"
-import { MetaEmbeddedSignup } from "@/components/MetaEmbeddedSignup"
+import { WhatsAppConnectOptions } from "@/components/whatsapp/whatsapp-connect-options"
 import { useQueryClient } from "@tanstack/react-query"
 import { useTenantSettings } from "@/hooks/tenant/use-tenant-settings"
 import { useUsage } from "@/hooks/billing/use-usage"
@@ -229,7 +229,7 @@ function Field({ id, label, children }: { id: string; label: string; children: R
 function WhatsAppConnect() {
   const queryClient = useQueryClient()
   return (
-    <MetaEmbeddedSignup
+    <WhatsAppConnectOptions
       next="/dashboard/settings"
       onSuccess={() => {
         toast("WhatsApp connected.")
