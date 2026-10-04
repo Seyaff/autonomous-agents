@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "Siyaf <onboarding@resend.dev>"
     FOUNDER_EMAIL: str = ""
 
+    # Online payments for orders. Filled in from each provider's merchant account.
+    JAZZCASH_MERCHANT_ID: str = ""
+    JAZZCASH_PASSWORD: str = ""
+    JAZZCASH_INTEGRITY_SALT: str = ""
+    EASYPAISA_STORE_ID: str = ""
+    EASYPAISA_HASH_KEY: str = ""
+    PAYMENT_RETURN_URL: str = ""
+
     # Payments. 'dummy' charges nothing; a real gateway replaces it later.
     PAYMENTS_PROVIDER: str = Field(
         default="dummy",

@@ -93,6 +93,12 @@ async def handle_tap(db, tenant: Dict[str, Any], customer_phone: str, button_id:
     from core.events import broadcast_order_update
     from services.order_service import initial_status_entry
 
+    from services.online_payments import handle_payment_choice, parse_pay_button
+
+    pay_order_id, pay_method = parse_pay_button(button_id)
+    if pay_order_id:
+        return await handle_payment_choice(db, tenant, customer_phone, pay_order_id, pay_method)
+
     action, order_id = parse_button(button_id)
     if not action:
         return "unknown button"
@@ -124,6 +130,16 @@ async def handle_tap(db, tenant: Dict[str, Any], customer_phone: str, button_id:
         })
         await _reply(db, tenant, customer_phone, "Thek hai, order cancel kar diya.")
         return "cancelled by customer"
+
+    from services.online_payments import ask_how_to_pay, provider_for
+
+    provider = provider_for(tenant)
+    if provider is not None:
+        # Online payments are set up: the customer chooses how to pay before the kitchen gets it.
+        await db["orders"].update_one({"order_id": order_id}, {"$set": {"customer_confirmed_at": now}})
+        order["customer_confirmed_at"] = now
+        await ask_how_to_pay(db, tenant, order, provider)
+        return "asked how to pay"
 
     entry = {"status": "pending", "at": now, "by": "customer", "by_user_id": None, "customer_notified": True}
     await db["orders"].update_one({"order_id": order_id}, {
