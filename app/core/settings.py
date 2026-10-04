@@ -16,7 +16,8 @@ class Settings(BaseSettings):
 
     # Email (Resend). Off until RESEND_API_KEY is set.
     RESEND_API_KEY: str = ""
-    EMAIL_FROM: str = "Siyaf <hello@siyaf.app>"
+    # Resend's sandbox sender works without a verified domain, but only delivers to the Resend account owner.
+    EMAIL_FROM: str = "Siyaf <onboarding@resend.dev>"
     FOUNDER_EMAIL: str = ""
 
     # Payments. 'dummy' charges nothing; a real gateway replaces it later.
