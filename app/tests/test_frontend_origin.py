@@ -20,3 +20,9 @@ def test_a_configured_frontend_url_wins():
 def test_local_development_stays_on_localhost():
     s = Settings(FRONTEND_URL="http://localhost:3000", GOOGLE_CALLBACK_URL="http://localhost:8000/api/v1/auth/google/callback")
     assert s.frontend_origin == "http://localhost:3000"
+
+
+def test_the_frontend_origin_variable_name_is_accepted(monkeypatch):
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://siyaf.vercel.app")
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+    assert Settings().FRONTEND_URL == "https://siyaf.vercel.app"

@@ -74,7 +74,10 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_CALLBACK_URL: str = "http://localhost:8000/api/v1/auth/google/callback"
     FRONTEND_ORIGIN: str = "http://localhost:3000"
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("FRONTEND_URL", "FRONTEND_ORIGIN"),
+    )
 
     @property
     def frontend_origin(self) -> str:
