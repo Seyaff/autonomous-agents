@@ -2,11 +2,11 @@ import type { Metadata } from "next"
 import Link from "next/link"
 
 import { PublicPage } from "@/components/marketing/page-frame"
-import { GUIDES } from "@/content/guides"
+import { PUBLISHED_GUIDES } from "@/content/guides"
 
 export const metadata: Metadata = {
   title: "Guides",
-  description: "Plain guides for restaurant owners in Pakistan on WhatsApp ordering, WhatsApp Business API pricing, and setup.",
+  description: "Plain guides for restaurant owners in Pakistan on taking orders on WhatsApp and setting up the WhatsApp Business API.",
   alternates: { canonical: "/guides" },
 }
 
@@ -19,7 +19,7 @@ export default function GuidesIndexPage() {
       </section>
 
       <ul className="space-y-5">
-        {GUIDES.map((g) => (
+        {PUBLISHED_GUIDES.map((g) => (
           <li key={g.slug} className="space-y-1">
             <Link className="font-medium underline underline-offset-4" href={`/guides/${g.slug}`}>{g.title}</Link>
             <p className="text-sm text-muted-foreground">{g.description}</p>

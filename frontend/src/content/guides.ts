@@ -11,11 +11,14 @@ export type Guide = {
   intro: string
   sections: { heading: string; body: string[] }[]
   related: string[]
+  // Held back until its figures are confirmed on Meta's current rate card. Hidden from the index, sitemap and routes.
+  draft?: boolean
 }
 
 export const GUIDES: Guide[] = [
   {
     slug: "whatsapp-business-api-pricing-pakistan",
+    draft: true,
     title: "WhatsApp Business API pricing in Pakistan",
     description: "How WhatsApp Business API fees work for a restaurant in Pakistan: the free replies, the fee after them, and a worked example.",
     date: "2026-10-04",
@@ -129,6 +132,8 @@ export const GUIDES: Guide[] = [
   },
 ]
 
+export const PUBLISHED_GUIDES = GUIDES.filter((g) => !g.draft)
+
 export function guideBySlug(slug: string): Guide | undefined {
-  return GUIDES.find((g) => g.slug === slug)
+  return PUBLISHED_GUIDES.find((g) => g.slug === slug)
 }

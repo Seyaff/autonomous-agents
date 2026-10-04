@@ -4,13 +4,13 @@ import { notFound } from "next/navigation"
 
 import { PublicPage, RelatedLinks } from "@/components/marketing/page-frame"
 import { FEATURES } from "@/content/features"
-import { GUIDES, guideBySlug } from "@/content/guides"
+import { PUBLISHED_GUIDES, guideBySlug } from "@/content/guides"
 import { absoluteUrl, SITE_NAME } from "@/lib/site"
 
 type Params = { params: Promise<{ slug: string }> }
 
 export function generateStaticParams() {
-  return GUIDES.map((g) => ({ slug: g.slug }))
+  return PUBLISHED_GUIDES.map((g) => ({ slug: g.slug }))
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {

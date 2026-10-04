@@ -17,7 +17,7 @@ export const CHAT_DEFINITION =
 
 // Meta's WhatsApp fees are billed by Meta to the restaurant, not by Siyaf. Check Meta's current price list before publishing any figure.
 export const META_FEE_NOTE =
-  "WhatsApp message fees are billed by Meta to your business, not by Siyaf. Meta includes a number of free replies each month, and charges for replies after that. Check Meta's current price list for the exact figures."
+  "WhatsApp message fees are billed by Meta to your business, not by Siyaf. Siyaf doesn't add or resell them. Check Meta's current price list for the exact figures."
 
 export const FAQS: { q: string; a: string }[] = [
   {

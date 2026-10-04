@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next"
 import { FEATURES } from "@/content/features"
-import { GUIDES } from "@/content/guides"
+import { PUBLISHED_GUIDES } from "@/content/guides"
 import { absoluteUrl } from "@/lib/site"
 
 // Every public page. New guides and feature pages are added here automatically from their content files.
@@ -22,7 +22,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     changeFrequency: "monthly" as const,
     priority: 0.7,
   }))
-  const guides = GUIDES.map((g) => ({
+  const guides = PUBLISHED_GUIDES.map((g) => ({
     url: absoluteUrl(`/guides/${g.slug}`),
     lastModified: new Date(g.updated),
     changeFrequency: "monthly" as const,

@@ -73,9 +73,6 @@ export default function PricingPage() {
       <section className="space-y-2">
         <h2 className="font-display text-xl font-semibold">WhatsApp fees</h2>
         <p className="text-muted-foreground">{META_FEE_NOTE}</p>
-        <p className="text-sm">
-          <Link className="underline underline-offset-4" href="/guides/whatsapp-business-api-pricing-pakistan">How the WhatsApp fee works, with an example</Link>
-        </p>
       </section>
 
       <section className="space-y-2">
