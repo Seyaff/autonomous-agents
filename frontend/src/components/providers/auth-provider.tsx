@@ -47,7 +47,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/terms"]
+const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/terms", "/pricing", "/how-it-works", "/faq", "/guides"]
+// Public sections with sub-pages, such as /guides/<slug>. Matched by prefix.
+const PUBLIC_PREFIXES = ["/guides/", "/features/", "/compare/"]
 const FOUNDER_PREFIX = "/founder"
 const SETUP_PREFIX = "/setup"
 
@@ -97,6 +99,7 @@ export default function AuthProvider({
         if (isLoading) return
 
         const isPublicPath = PUBLIC_PATHS.some(p => pathname === p)
+            || PUBLIC_PREFIXES.some(p => pathname.startsWith(p))
         const isFounderPath = pathname.startsWith(FOUNDER_PREFIX)
 
         // Not authenticated -> redirect to login (unless on public path)
