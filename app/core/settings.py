@@ -11,6 +11,11 @@ class Settings(BaseSettings):
 
     PINECONE_API_KEY: str
 
+    # Email (Resend). Off until RESEND_API_KEY is set.
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "Siyaf <hello@siyaf.app>"
+    FOUNDER_EMAIL: str = ""
+
     # Payments. 'dummy' charges nothing; a real gateway replaces it later.
     PAYMENTS_PROVIDER: str = Field(
         default="dummy",

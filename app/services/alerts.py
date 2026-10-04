@@ -88,6 +88,11 @@ async def raise_alert(
         inserted = await db["owner_alerts"].insert_one(doc)
         doc["_id"] = inserted.inserted_id
 
+        if kind == "whatsapp_disconnected":
+            from services import email as mail
+            to, tenant = await mail.owner_context(db, tenant_id)
+            mail.whatsapp_disconnected(to, tenant, tenant_id, detail)
+
         from core.ws_manager import ws_manager
         from schemas.ws_events import WSEvent
 

@@ -61,6 +61,7 @@ def owner_db(subscription, invoices=None):
     db["invoices"] = FakeCollection(invoices or [])
     db["usage_counters"] = FakeCollection([])
     db["counters"] = FakeCollection([])
+    db["users"] = FakeCollection([])
     return db
 
 

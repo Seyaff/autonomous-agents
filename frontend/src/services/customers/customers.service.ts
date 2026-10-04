@@ -49,3 +49,25 @@ export const getCustomer = async (phone: string): Promise<CustomerDetail> => {
   const res = await API.get(`/customers/${encodeURIComponent(phone)}`)
   return res.data
 }
+
+export interface CustomerFactRow {
+  id: string
+  kind: string
+  key: string
+  value: string
+}
+
+export const listCustomerFacts = async (phone: string): Promise<CustomerFactRow[]> => {
+  const res = await API.get(`/customers/${encodeURIComponent(phone)}/facts`)
+  return res.data.facts
+}
+
+export const correctCustomerFact = async (phone: string, id: string, value: string) => {
+  const res = await API.patch(`/customers/${encodeURIComponent(phone)}/facts/${id}`, { value })
+  return res.data
+}
+
+export const forgetCustomerFact = async (phone: string, id: string) => {
+  const res = await API.delete(`/customers/${encodeURIComponent(phone)}/facts/${id}`)
+  return res.data
+}

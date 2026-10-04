@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.whatsapp_utils import resolve_tenant_whatsapp_credentials, send_whatsapp_message
+from core.whatsapp_utils import resolve_tenant_whatsapp_credentials, send_text, send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 

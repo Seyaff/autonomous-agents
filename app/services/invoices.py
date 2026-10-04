@@ -11,6 +11,7 @@ from pymongo import ReturnDocument
 
 from services.billing import EXTRA_CHAT_PKR, PLANS, add_months
 from services.payments import get_payment_provider
+from services import email as mail
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,8 @@ async def pay_open_invoice(db, invoice: Dict[str, Any], method: str = "card") ->
     result = await provider.pay_invoice(invoice, method)
     if not result.ok:
         logger.info(f"[billing] payment failed for {invoice['invoice_id']}: {result.error}")
+        to, tenant = await mail.owner_context(db, invoice["tenant_id"])
+        mail.payment_failed(to, tenant, invoice, result.error or "The payment didn't go through.")
         return None, result.error or "The payment didn't go through. Try again."
 
     now = datetime.now(timezone.utc)
@@ -117,6 +120,9 @@ async def pay_open_invoice(db, invoice: Dict[str, Any], method: str = "card") ->
             "subscription.pending_plan": None,
             "updated_at": now,
         }})
+    to, tenant = await mail.owner_context(db, paid["tenant_id"])
+    active_until = (tenant.get("subscription") or {}).get("current_period_end")
+    mail.payment_received(to, tenant, paid, str(active_until) if active_until else None)
     return paid, None
 
 

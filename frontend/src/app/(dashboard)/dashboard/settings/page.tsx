@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useTenantSettings } from "@/hooks/tenant/use-tenant-settings"
 import { useUsage } from "@/hooks/billing/use-usage"
 import { AlertPreferences } from "@/components/settings/alert-preferences"
+import { SecuritySection } from "@/components/settings/security-section"
 import { USE_MOCKS } from "@/lib/mocks"
 import type { TenantSettingsUpdate } from "@/services/tenant/tenant.service"
 
@@ -193,6 +194,8 @@ function Settings() {
           </section>
 
           <AlertPreferences />
+
+          <SecuritySection />
 
           {u && (
             <section className="rounded-lg border border-border bg-card p-4">
