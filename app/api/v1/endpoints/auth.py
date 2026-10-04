@@ -11,8 +11,12 @@ from utils.jwt import generate_access_token
 from middlewares.auth_middleware import get_current_user as require_signed_in
 from services.sessions import create_session, revoke_all, revoke_session, rotate, hash_token, SESSIONS
 from services import email as mail
+from services import two_factor
+from services import beta
 from utils.jwt import verify_access_claims
 from typing import Optional
+from datetime import timedelta
+from core.secrets import protect, reveal
 from core.database import get_database
 from core.settings import settings
 from utils.cookie import (
@@ -153,6 +157,10 @@ async def login_with_email(payload: EmailLoginRequest, request: Request, respons
         {"user_id": user_id},
         {"$set": {"last_login": datetime.now(timezone.utc)}}
     )
+
+    # Owners with two-step sign-in finish at /auth/2fa/verify. No session starts until then.
+    if user.get("totp_enabled") and two_factor.is_owner(user):
+        return {"status": "2fa_required", "challenge": two_factor.challenge_token(user["user_id"])}
 
     access_token = await _start_session(response, request, db, user_id)
 
@@ -460,3 +468,124 @@ async def change_password(
     if user.get("email"):
         mail.password_changed(user["email"], current_user["user_id"], now)
     return {"status": "success", "message": "Password changed. Other devices were signed out."}
+
+
+# ------------------ TWO-STEP SIGN-IN (OWNERS ONLY) ------------------
+
+def _owners_only(user: dict) -> None:
+    if not two_factor.is_owner(user):
+        raise HTTPException(status_code=403, detail="Two-step sign-in is for restaurant owners.")
+
+
+class TwoFactorCode(BaseModel):
+    code: str = Field(..., min_length=6, max_length=12)
+
+
+class TwoFactorDisable(BaseModel):
+    password: str = Field(..., min_length=1, max_length=128)
+    code: str = Field(..., min_length=6, max_length=12)
+
+
+class TwoFactorVerify(BaseModel):
+    challenge: str
+    code: str = Field(..., min_length=6, max_length=12)
+
+
+@auth_routes.get("/2fa/status")
+async def two_factor_status(current_user: dict = Depends(require_signed_in)):
+    _owners_only(current_user)
+    return {"enabled": bool(current_user.get("totp_enabled")), "recovery_codes_left": len(current_user.get("totp_recovery_hashes") or [])}
+
+
+@auth_routes.post("/2fa/setup")
+async def two_factor_setup(current_user: dict = Depends(require_signed_in), db=Depends(get_database)):
+    """Starts two-step sign-in. Nothing changes until the first code is confirmed."""
+    _owners_only(current_user)
+    if current_user.get("totp_enabled"):
+        raise HTTPException(status_code=409, detail="Two-step sign-in is already on.")
+    secret = two_factor.new_secret()
+    await db["users"].update_one({"user_id": current_user["user_id"]}, {"$set": {"totp_pending_secret": protect(secret)}})
+    return {"secret": secret, "otpauth_uri": two_factor.provisioning_uri(secret, current_user.get("email", ""))}
+
+
+@auth_routes.post("/2fa/enable")
+async def two_factor_enable(payload: TwoFactorCode, current_user: dict = Depends(require_signed_in), db=Depends(get_database)):
+    """Confirms the first code and turns two-step sign-in on. Recovery codes are shown once."""
+    _owners_only(current_user)
+    pending = current_user.get("totp_pending_secret")
+    if not pending:
+        raise HTTPException(status_code=400, detail="Start the set-up first.")
+    secret = reveal(pending)
+    if not two_factor.verify_totp(secret, payload.code):
+        raise HTTPException(status_code=400, detail="That code isn't right. Check the time on your phone and try again.")
+    codes = two_factor.new_recovery_codes()
+    await db["users"].update_one({"user_id": current_user["user_id"]}, {"$set": {
+        "totp_secret": protect(secret),
+        "totp_enabled": True,
+        "totp_recovery_hashes": two_factor.hash_recovery_codes(codes),
+        "totp_failed_attempts": 0,
+        "totp_locked_until": None,
+        "updated_at": datetime.now(timezone.utc),
+    }, "$unset": {"totp_pending_secret": ""}})
+    return {"status": "enabled", "recovery_codes": codes}
+
+
+@auth_routes.post("/2fa/disable")
+async def two_factor_disable(payload: TwoFactorDisable, current_user: dict = Depends(require_signed_in), db=Depends(get_database)):
+    _owners_only(current_user)
+    user = await db["users"].find_one({"user_id": current_user["user_id"]})
+    if not bcrypt.checkpw(payload.password.encode("utf-8"), user["password"].encode("utf-8")):
+        raise HTTPException(status_code=400, detail="Your password isn't right.")
+    if not two_factor.verify_totp(reveal(user["totp_secret"]), payload.code):
+        raise HTTPException(status_code=400, detail="That code isn't right.")
+    await db["users"].update_one({"user_id": current_user["user_id"]}, {"$set": {"totp_enabled": False, "updated_at": datetime.now(timezone.utc)},
+                                                                         "$unset": {"totp_secret": "", "totp_recovery_hashes": ""}})
+    return {"status": "disabled"}
+
+
+@auth_routes.post("/2fa/verify")
+async def two_factor_verify(payload: TwoFactorVerify, request: Request, response: Response, db=Depends(get_database)):
+    """Completes a sign-in that needed a code. Five wrong codes lock it for fifteen minutes."""
+    user_id = two_factor.read_challenge(payload.challenge)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in again.")
+    user = await db["users"].find_one({"user_id": user_id})
+    if not user or not user.get("totp_enabled"):
+        raise HTTPException(status_code=401, detail="Sign in again.")
+    if two_factor.is_locked(user):
+        raise HTTPException(status_code=429, detail="Too many wrong codes. Try again in 15 minutes.")
+
+    code_ok = two_factor.verify_totp(reveal(user["totp_secret"]), payload.code)
+    recovery_used = False
+    if not code_ok:
+        hashes = user.get("totp_recovery_hashes") or []
+        index = two_factor.use_recovery_code(hashes, payload.code)
+        if index is not None:
+            # A recovery code works once.
+            hashes.pop(index)
+            await db["users"].update_one({"user_id": user_id}, {"$set": {"totp_recovery_hashes": hashes}})
+            recovery_used = True
+        else:
+            failed = int(user.get("totp_failed_attempts") or 0) + 1
+            locked = datetime.now(timezone.utc) + timedelta(minutes=two_factor.LOCK_MINUTES) if failed >= two_factor.MAX_FAILED_CODES else None
+            await db["users"].update_one({"user_id": user_id}, {"$set": {"totp_failed_attempts": 0 if locked else failed, "totp_locked_until": locked}})
+            raise HTTPException(status_code=401, detail="That code isn't right.")
+
+    await db["users"].update_one({"user_id": user_id}, {"$set": {"totp_failed_attempts": 0, "totp_locked_until": None, "last_login": datetime.now(timezone.utc)}})
+    access_token = await _start_session(response, request, db, user_id)
+    return {"status": "success", "token": access_token, "recovery_code_used": recovery_used}
+
+
+@auth_routes.get("/restaurants")
+async def list_restaurants(current_user: dict = Depends(require_signed_in), db=Depends(get_database)):
+    """Restaurants this owner has, with their role in each."""
+    rows = await db["memberships"].find({"user_id": current_user["user_id"]}, {"_id": 0, "tenant_id": 1, "role": 1}).to_list(length=50)
+    # Restaurants created before memberships were recorded are still the owner's.
+    known = {r["tenant_id"] for r in rows}
+    rows += [{"tenant_id": t, "role": "owner"} for t in (current_user.get("tenants") or []) if t and t not in known]
+    names = {t["tenant_id"]: t.get("business_name") for t in await db["tenants"].find({"tenant_id": {"$in": [r["tenant_id"] for r in rows]}}, {"tenant_id": 1, "business_name": 1}).to_list(length=50)}
+    return {
+        "active_tenant_id": current_user.get("active_tenant_id"),
+        "restaurants": [{"tenant_id": r["tenant_id"], "name": names.get(r["tenant_id"]), "role": r["role"]} for r in rows],
+        "can_add_restaurant": beta.can_add_restaurant(current_user),
+    }

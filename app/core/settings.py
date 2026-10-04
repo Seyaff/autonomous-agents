@@ -11,6 +11,9 @@ class Settings(BaseSettings):
 
     PINECONE_API_KEY: str
 
+    # Owners who can add a second restaurant before it's generally available (comma-separated emails).
+    BETA_OWNER_EMAILS: str = ""
+
     # Email (Resend). Off until RESEND_API_KEY is set.
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = "Siyaf <hello@siyaf.app>"

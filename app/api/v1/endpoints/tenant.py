@@ -34,6 +34,7 @@ from core.setup_state import (
     validate_action,
 )
 from services.billing import new_subscription
+from services import beta
 from services.availability import today_for
 from services.menu_extraction import extract_menu_items, replace_menu_items
 from services.menu_jobs import MENU_JOBS, active_job, create_job, mark_stale_jobs, public, start_job
@@ -188,7 +189,13 @@ async def create_tenant(
         "updated_at": datetime.now(timezone.utc),
     }
 
+    # A second restaurant is in beta: only for owners we've switched it on for.
+    existing = [t for t in (current_user.get("tenants") or []) if t]
+    if existing and not beta.can_add_restaurant(current_user):
+        raise HTTPException(status_code=403, detail="Adding another restaurant is in beta. Ask us to turn it on for your account.")
+
     await db.tenants.insert_one(tenant_doc)
+    await db["memberships"].insert_one({"user_id": current_user.get("user_id"), "tenant_id": tenant_doc["tenant_id"], "role": "owner", "created_at": datetime.now(timezone.utc)})
     if settings.FOUNDER_EMAIL:
         from services import email as mail
         mail.founder_new_restaurant(settings.FOUNDER_EMAIL, tenant_doc, current_user.get("full_name") or current_user.get("email") or "an owner")

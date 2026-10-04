@@ -10,7 +10,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   changePassword,
+  disableTwoFactor,
+  enableTwoFactor,
   listSessions,
+  startTwoFactor,
+  twoFactorStatus,
   signOutDevice,
   signOutEverywhere,
   type DeviceSession,
@@ -35,7 +39,114 @@ function when(iso: string) {
   return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
 }
 
-/** Signed-in devices, sign-out, and password change. */
+/** Two-step sign-in: turn it on with an authenticator app, then sign in with a code. */
+function TwoFactorPanel() {
+  const queryClient = useQueryClient()
+  const status = useQuery({ queryKey: ["account", "2fa"], queryFn: twoFactorStatus })
+  const [setup, setSetup] = React.useState<{ secret: string; otpauth_uri: string } | null>(null)
+  const [code, setCode] = React.useState("")
+  const [recovery, setRecovery] = React.useState<string[] | null>(null)
+  const [password, setPassword] = React.useState("")
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["account", "2fa"] })
+
+  const start = useMutation({
+    mutationFn: startTwoFactor,
+    onSuccess: (data) => setSetup(data),
+    onError: (err) => toast.error(errorText(err, "Could not start two-step sign-in.")),
+  })
+  const enable = useMutation({
+    mutationFn: () => enableTwoFactor(code),
+    onSuccess: (data) => {
+      setRecovery(data.recovery_codes)
+      setSetup(null)
+      setCode("")
+      refresh()
+    },
+    onError: (err) => toast.error(errorText(err, "That code isn't right.")),
+  })
+  const disable = useMutation({
+    mutationFn: () => disableTwoFactor(password, code),
+    onSuccess: () => {
+      toast("Two-step sign-in is off.")
+      setPassword("")
+      setCode("")
+      refresh()
+    },
+    onError: (err) => toast.error(errorText(err, "Could not turn it off.")),
+  })
+
+  if (recovery) {
+    return (
+      <div className="space-y-3">
+        <h2 className="text-sm font-medium">Save your recovery codes</h2>
+        <p className="text-xs text-muted-foreground">
+          Each one works once, if you lose your phone. They won't be shown again.
+        </p>
+        <ul className="grid grid-cols-2 gap-2 font-mono text-sm">
+          {recovery.map((c) => <li key={c}>{c}</li>)}
+        </ul>
+        <div className="flex justify-end">
+          <Button size="sm" onClick={() => setRecovery(null)}>I've saved them</Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!status.data) return null
+
+  if (!status.data.enabled) {
+    return (
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-sm font-medium">Two-step sign-in</h2>
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+            Adds a code from an authenticator app (Google Authenticator, Microsoft Authenticator or similar) to every sign-in.
+          </p>
+        </div>
+        {!setup ? (
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" disabled={start.isPending} onClick={() => start.mutate()}>Turn on</Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-sm">Add this account to your app. Enter the setup key, or open the link on your phone.</p>
+            <p className="break-all rounded-md bg-muted p-2 font-mono text-xs">{setup.secret}</p>
+            <a className="text-xs underline" href={setup.otpauth_uri}>Open in authenticator app</a>
+            <div className="space-y-1">
+              <Label htmlFor="tfa-code">6-digit code from the app</Label>
+              <Input id="tfa-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} />
+            </div>
+            <div className="flex justify-end">
+              <Button size="sm" disabled={code.trim().length < 6 || enable.isPending} onClick={() => enable.mutate()}>Confirm and turn on</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h2 className="text-sm font-medium">Two-step sign-in is on</h2>
+        <p className="mt-1 font-mono text-[11px] text-muted-foreground">Recovery codes left: {status.data.recovery_codes_left}</p>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="tfa-off-password">Password</Label>
+        <Input id="tfa-off-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Label htmlFor="tfa-off-code">Code from your app</Label>
+        <Input id="tfa-off-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} />
+      </div>
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" disabled={!password || code.trim().length < 6 || disable.isPending} onClick={() => disable.mutate()}>
+          Turn off
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** Signed-in devices, sign-out, password change, and two-step sign-in. */
 export function SecuritySection() {
   const queryClient = useQueryClient()
   const sessions = useQuery({ queryKey: ["account", "sessions"], queryFn: listSessions })
@@ -79,7 +190,9 @@ export function SecuritySection() {
 
   return (
     <section className="rounded-lg border border-border bg-card p-4 space-y-5">
-      <div>
+      <TwoFactorPanel />
+
+      <div className="border-t border-border pt-4">
         <h2 className="text-sm font-medium">Signed-in devices</h2>
         <p className="mt-1 font-mono text-[11px] text-muted-foreground">
           Each sign-in on a device is listed here. Sign out any you don't recognise.
