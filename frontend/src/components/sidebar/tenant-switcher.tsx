@@ -7,6 +7,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -100,9 +101,11 @@ export function TenantSwitcher() {
             <ChevronDownIcon className="ml-auto size-4 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-64 rounded-lg" align="start" side="bottom" sideOffset={4}>
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
-              {options.length} {options.length === 1 ? "branch" : "branches"}
-            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                {options.length} {options.length === 1 ? "branch" : "branches"}
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             {options.map((t) => (
               <DropdownMenuItem key={t.tenant_id} onClick={() => handleSelect(t.tenant_id)}>
                 <span className="text-sm font-medium">
