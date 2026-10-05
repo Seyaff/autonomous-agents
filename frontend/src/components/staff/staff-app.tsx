@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { WaiterScreen } from "@/components/staff/waiter-screen"
 import {
   kitchenStep,
+  linkIpad,
   staffMe,
   staffOpenOrders,
   staffRoster,
@@ -21,6 +22,38 @@ const ROLE_LABEL: Record<string, string> = { waiter: "Waiter", reception: "Recep
 
 function errorText(err: unknown, fallback: string) {
   return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? fallback
+}
+
+/** First use on an iPad: type the restaurant code the owner shows. After that the iPad stays linked. */
+function LinkScreen({ restaurant, onLinked }: { restaurant: string; onLinked: () => void }) {
+  const [code, setCode] = React.useState("")
+  const link = useMutation({
+    mutationFn: () => linkIpad(restaurant, code),
+    onSuccess: () => { toast.success("This iPad is linked."); onLinked() },
+    onError: (err) => toast.error(errorText(err, "That code isn't right.")),
+  })
+  return (
+    <Shell title="Link this iPad">
+      <p className="text-base">Ask the owner for the restaurant code. You only type it once on this iPad.</p>
+      <form
+        className="grid gap-3"
+        onSubmit={(e) => { e.preventDefault(); if (code.length === 6) link.mutate() }}
+      >
+        <input
+          inputMode="numeric"
+          maxLength={6}
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          placeholder="6-digit code"
+          aria-label="Restaurant code"
+          className="h-16 rounded-2xl border-2 border-border bg-card px-4 text-center font-mono text-3xl tracking-[0.3em]"
+        />
+        <Button type="submit" className="min-h-16 text-lg" disabled={code.length !== 6 || link.isPending}>
+          {link.isPending ? "Linking…" : "Link iPad"}
+        </Button>
+      </form>
+    </Shell>
+  )
 }
 
 /** The staff app for one restaurant: sign-in, then the waiter, kitchen or reception screen. */
@@ -42,6 +75,8 @@ export function StaffApp({ restaurant }: { restaurant: string }) {
     window.addEventListener("popstate", stay)
     return () => window.removeEventListener("popstate", stay)
   }, [isWaiter])
+
+  const notLinked = roster.isError && (roster.error as { response?: { status?: number } })?.response?.status === 403
 
   const [picked, setPicked] = React.useState<RosterEntry | null>(null)
   const [pin, setPin] = React.useState("")
@@ -93,6 +128,10 @@ export function StaffApp({ restaurant }: { restaurant: string }) {
         {me.data.role === "reception" && <KitchenScreen canCook={false} />}
       </Shell>
     )
+  }
+
+  if (notLinked) {
+    return <LinkScreen restaurant={restaurant} onLinked={() => queryClient.invalidateQueries({ queryKey: ["staff", "roster", restaurant] })} />
   }
 
   if (picked) {
