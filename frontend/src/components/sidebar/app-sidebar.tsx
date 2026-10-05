@@ -12,6 +12,7 @@ import {
   ReceiptTextIcon,
   SettingsIcon,
   SparklesIcon,
+  UsersRoundIcon,
 } from "lucide-react"
 
 import { TenantSwitcher } from "@/components/sidebar/tenant-switcher"
@@ -55,6 +56,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     { title: "Reports", url: "/dashboard/reports", icon: <BarChart3Icon /> },
     { title: "Billing", url: "/dashboard/billing", icon: <CreditCardIcon /> },
     { title: "Assistant", url: "/dashboard/assistant", icon: <SparklesIcon /> },
+    { title: "Staff and tables", url: "/dashboard/staff", icon: <UsersRoundIcon /> },
     { title: "Settings", url: "/dashboard/settings", icon: <SettingsIcon /> },
   ]
 

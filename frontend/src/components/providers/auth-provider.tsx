@@ -49,7 +49,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/terms", "/pricing", "/how-it-works", "/faq", "/guides"]
 // Public sections with sub-pages, such as /guides/<slug>. Matched by prefix.
-const PUBLIC_PREFIXES = ["/guides/", "/features/", "/compare/"]
+const PUBLIC_PREFIXES = ["/guides/", "/features/", "/compare/", "/staff/"]
 const FOUNDER_PREFIX = "/founder"
 const SETUP_PREFIX = "/setup"
 

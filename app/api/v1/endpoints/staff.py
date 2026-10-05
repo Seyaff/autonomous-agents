@@ -81,7 +81,9 @@ def _owner_tenant(current_user: dict) -> str:
 
 @owner_staff_routes.get("/staff")
 async def owner_list_staff(db=Depends(get_database), current_user: dict = Depends(require_owner)):
-    return {"staff": await svc.list_staff(db, _owner_tenant(current_user))}
+    tenant_id = _owner_tenant(current_user)
+    tenant = await db.tenants.find_one({"tenant_id": tenant_id}, {"dine_table_count": 1}) or {}
+    return {"staff": await svc.list_staff(db, tenant_id), "table_count": int(tenant.get("dine_table_count") or 0)}
 
 
 @owner_staff_routes.post("/staff", status_code=201)
@@ -137,7 +139,7 @@ class SignInBody(BaseModel):
 
 @staff_routes.get("/roster")
 async def staff_roster(restaurant: str, db=Depends(get_database)):
-    """Waiter names for the sign-in list. No PINs."""
+    """Names for the sign-in list, with role and lock state. No PINs."""
     tenant_id = await _tenant_id_for(db, restaurant)
     return {"waiters": await svc.roster(db, tenant_id)}
 
@@ -183,6 +185,12 @@ class OrderBody(BaseModel):
 
 class KitchenBody(BaseModel):
     status: str
+
+
+@staff_routes.get("/menu")
+async def staff_menu(staff: dict = Depends(staff_with("waiter")), db=Depends(get_database)):
+    tenant = await db.tenants.find_one({"tenant_id": _tenant_of(staff)}) or {}
+    return {"items": await svc.staff_menu(db, _tenant_of(staff), tenant)}
 
 
 @staff_routes.get("/tables")
