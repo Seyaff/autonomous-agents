@@ -17,6 +17,7 @@ from api.v1.endpoints.inbox_ws import inbox_ws_router
 from api.v1.endpoints.agent import agent_router
 from api.v1.endpoints.health import router as health_router
 from api.v1.endpoints.payments import payments_router
+from api.v1.endpoints.staff import owner_staff_routes, staff_routes
 
 
 v1_router = APIRouter()
@@ -39,3 +40,5 @@ v1_router.include_router(inbox_ws_router)
 v1_router.include_router(agent_router)
 v1_router.include_router(health_router)
 v1_router.include_router(payments_router)
+v1_router.include_router(owner_staff_routes)
+v1_router.include_router(staff_routes)
