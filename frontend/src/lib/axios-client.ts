@@ -60,6 +60,14 @@ API.interceptors.response.use(
   },
   async (error) => {
     const requestId = error.config?.headers?.["X-Request-ID"] || "unknown"
+    // A validation error from the server comes as a list of field problems. Show it as one readable sentence,
+    // because React can't display a list of objects, and the page would crash.
+    const rawDetail = error.response?.data?.detail
+    if (Array.isArray(rawDetail) && error.response) {
+      error.response.data.detail =
+        rawDetail.map((d: { msg?: string }) => d?.msg).filter(Boolean).join(". ") || "Check the form and try again."
+    }
+
     const message =
       error.response?.data?.detail ||
       error.response?.data?.message ||
