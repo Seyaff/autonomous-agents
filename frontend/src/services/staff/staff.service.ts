@@ -28,7 +28,7 @@ export interface MenuItem {
 
 export interface TableState {
   table_no: number
-  status: "free" | "sent" | "ready" | "served" | "bill"
+  status: "free" | "sent" | "ready" | "served" | "billing" | "bill"
   total: number
   order_ids: string[]
 }
@@ -43,6 +43,8 @@ export interface TableOrder {
   order_id: string
   table_no: number
   waiter_name: string
+  customer_name: string | null
+  bill_printed_at?: string | null
   items: OrderLine[]
   status: "sent" | "served" | "billed" | "paid"
   kitchen_status: "new" | "cooking" | "ready"
@@ -71,8 +73,8 @@ export const staffMe = async () => (await API.get<StaffMember>("/staff/me")).dat
 export const staffMenu = async () => (await API.get<{ items: MenuItem[] }>("/staff/menu")).data.items
 export const staffTables = async () => (await API.get<{ tables: TableState[] }>("/staff/tables")).data.tables
 export const staffOpenOrders = async () => (await API.get<{ orders: TableOrder[] }>("/staff/orders")).data.orders
-export const sendTableOrder = async (table_no: number, items: { name: string; qty: number }[]) =>
-  (await API.post<TableOrder>("/staff/orders", { table_no, items })).data
+export const sendTableOrder = async (table_no: number, items: { name: string; qty: number }[], customer_name?: string) =>
+  (await API.post<TableOrder>("/staff/orders", { table_no, items, customer_name: customer_name || null })).data
 export const markServed = async (order_id: string) => API.post(`/staff/orders/${order_id}/served`)
 export const kitchenStep = async (order_id: string, status: "cooking" | "ready") =>
   API.post(`/staff/orders/${order_id}/kitchen`, { status })

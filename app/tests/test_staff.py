@@ -272,8 +272,11 @@ def test_table_goes_free_to_sent_to_served_to_bill_to_paid():
 
     bill = run(svc.request_bill(db, TENANT, waiter, 1))
     assert bill["total"] == 1650 + 2 * 70
-    assert run(svc.table_board(db, TENANT))[0]["status"] == "bill"
+    assert run(svc.table_board(db, TENANT))[0]["status"] == "billing"
     assert db.print_jobs.docs[-1]["kind"] == "bill"
+
+    run(svc.mark_printed(db, TENANT, run(svc.list_print_jobs(db, TENANT))[0]["job_id"]))
+    assert run(svc.table_board(db, TENANT))[0]["status"] == "bill"
 
     run(svc.mark_paid_cash(db, TENANT, waiter, 1))
     assert run(svc.table_board(db, TENANT))[0]["status"] == "free"

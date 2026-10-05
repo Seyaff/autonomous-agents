@@ -256,8 +256,9 @@ def _order_total(order: Dict[str, Any]) -> float:
 def _table_status(orders: List[Dict[str, Any]]) -> str:
     if not orders:
         return "free"
-    if any(o["status"] == "billed" for o in orders):
-        return "bill"
+    billed = [o for o in orders if o["status"] == "billed"]
+    if billed:
+        return "bill" if all(o.get("bill_printed_at") for o in billed) else "billing"
     if all(o["status"] == "served" for o in orders):
         return "served"
     if any(o["kitchen_status"] == "ready" for o in orders):
@@ -308,8 +309,12 @@ async def _queue_print(db, tenant_id: str, kind: str, ref: str, lines: List[str]
     await db[PRINT_JOBS].insert_one(job)
 
 
-async def send_order(db, tenant_id: str, staff: Dict[str, Any], table_no: int, lines: List[Dict[str, Any]]) -> Dict[str, Any]:
+async def send_order(db, tenant_id: str, staff: Dict[str, Any], table_no: int, lines: List[Dict[str, Any]],
+                     customer_name: Optional[str] = None) -> Dict[str, Any]:
     _require_role(staff, "waiter")
+    customer_name = (customer_name or "").strip() or None
+    if customer_name and len(customer_name) > 60:
+        raise StaffError("The customer's name is too long.")
     tenant = await db.tenants.find_one({"tenant_id": tenant_id}) or {}
     if not isinstance(table_no, int) or not 1 <= table_no <= int(tenant.get("dine_table_count") or 0):
         raise StaffError("That table isn't set up.")
@@ -340,6 +345,7 @@ async def send_order(db, tenant_id: str, staff: Dict[str, Any], table_no: int, l
         "table_no": table_no,
         "waiter_id": staff["staff_id"],
         "waiter_name": staff["name"],
+        "customer_name": customer_name,
         "items": items,
         "status": "sent",
         "kitchen_status": "new",
@@ -415,7 +421,8 @@ async def request_bill(db, tenant_id: str, staff: Dict[str, Any], table_no: int,
         "items": [{"qty": r["qty"], "name": r["name"], "amount": float(r["price"]) * r["qty"]} for r in totals.values()],
         "total": grand,
         "payment": "Cash",
-        "printed_at": now.isoformat(),
+        "order_ids": [o["order_id"] for o in orders],
+        "requested_at": now.isoformat(),
     }
     ref = f"table-{table_no}-{now.strftime('%H%M%S')}"
     await _queue_print(db, tenant_id, "bill", ref, [], receipt=receipt)
@@ -430,12 +437,20 @@ async def list_print_jobs(db, tenant_id: str, kind: str = "bill") -> List[Dict[s
 
 
 async def mark_printed(db, tenant_id: str, job_id: str) -> Dict[str, Any]:
-    result = await db[PRINT_JOBS].update_one(
-        {"tenant_id": tenant_id, "job_id": job_id, "status": "queued"},
-        {"$set": {"status": "printed", "printed_at": datetime.now(timezone.utc)}},
-    )
-    if result.matched_count == 0:
+    now = datetime.now(timezone.utc)
+    job = await db[PRINT_JOBS].find_one({"tenant_id": tenant_id, "job_id": job_id, "status": "queued"})
+    if not job:
         raise StaffError("That bill was already printed or isn't there.")
+    await db[PRINT_JOBS].update_one(
+        {"tenant_id": tenant_id, "job_id": job_id},
+        {"$set": {"status": "printed", "printed_at": now}},
+    )
+    order_ids = (job.get("receipt") or {}).get("order_ids") or []
+    if order_ids:
+        await db[TABLE_ORDERS].update_many(
+            {"tenant_id": tenant_id, "order_id": {"$in": order_ids}},
+            {"$set": {"bill_printed_at": now}},
+        )
     return {"job_id": job_id, "status": "printed"}
 
 
