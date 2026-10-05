@@ -32,19 +32,27 @@ DEVICE_DAYS = 365
 DEVICE_MARK = "siyaf_ipad"
 
 
-def _device_tenant(request: Request):
+DEVICE_KINDS = ("waiter", "kitchen", "counter")
+# A kitchen or counter screen works without a PIN, as the role it stands for.
+DEVICE_ROLE = {"kitchen": "kitchen", "counter": "reception"}
+
+
+def _device(request: Request):
+    """(restaurant id, device kind) for a linked iPad or screen, or (None, None)."""
     token = request.cookies.get(DEVICE_COOKIE)
     if not token:
-        return None
+        return None, None
     try:
         claims = jwt.decode(token, key=settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
     except jwt.PyJWTError:
-        return None
-    return claims.get("tid") if claims.get("type") == DEVICE_TYPE else None
+        return None, None
+    if claims.get("type") != DEVICE_TYPE:
+        return None, None
+    return claims.get("tid"), claims.get("kind", "waiter")
 
 
 def _require_linked(request: Request, tenant_id: str) -> None:
-    if _device_tenant(request) != tenant_id:
+    if _device(request)[0] != tenant_id:
         raise HTTPException(status_code=403, detail="This iPad isn't linked to this restaurant. Enter the restaurant code.")
 
 
@@ -61,12 +69,15 @@ async def _tenant_id_for(db, slug: str) -> str:
 
 async def current_staff(request: Request, db=Depends(get_database)) -> dict:
     token = request.cookies.get(STAFF_COOKIE)
-    if not token:
-        raise HTTPException(status_code=401, detail="Sign in with your PIN first.")
-    try:
-        return await svc.staff_from_token(db, token)
-    except StaffError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    if token:
+        try:
+            return await svc.staff_from_token(db, token)
+        except StaffError as e:
+            raise HTTPException(status_code=401, detail=str(e))
+    tenant_id, kind = _device(request)
+    if kind in DEVICE_ROLE and tenant_id:
+        return {"tenant_id": tenant_id, "staff_id": f"device-{kind}", "name": f"{kind.title()} screen", "role": DEVICE_ROLE[kind]}
+    raise HTTPException(status_code=401, detail="Sign in with your PIN first.")
 
 
 def staff_with(*roles: str):
@@ -108,8 +119,12 @@ def _owner_tenant(current_user: dict) -> str:
 @owner_staff_routes.get("/staff")
 async def owner_list_staff(db=Depends(get_database), current_user: dict = Depends(require_owner)):
     tenant_id = _owner_tenant(current_user)
-    tenant = await db.tenants.find_one({"tenant_id": tenant_id}, {"dine_table_count": 1}) or {}
-    return {"staff": await svc.list_staff(db, tenant_id), "table_count": int(tenant.get("dine_table_count") or 0)}
+    tenant = await db.tenants.find_one({"tenant_id": tenant_id}, {"dine_table_count": 1, "tenant_slug": 1}) or {}
+    return {
+        "staff": await svc.list_staff(db, tenant_id),
+        "table_count": int(tenant.get("dine_table_count") or 0),
+        "restaurant_slug": tenant.get("tenant_slug"),
+    }
 
 
 @owner_staff_routes.post("/staff", status_code=201)
@@ -169,6 +184,7 @@ async def owner_set_tables(payload: TableCountBody, db=Depends(get_database), cu
 class LinkBody(BaseModel):
     restaurant: str = Field(min_length=1, max_length=80)
     code: str = Field(min_length=6, max_length=6)
+    kind: str = Field(default="waiter", pattern="^(waiter|kitchen|counter)$")
 
 
 class SignInBody(BaseModel):
@@ -187,13 +203,14 @@ async def staff_link(payload: LinkBody, response: Response, db=Depends(get_datab
         raise HTTPException(status_code=403, detail="That code isn't right. Ask the owner for the code on the Staff page.")
     now = datetime.now(timezone.utc)
     token = jwt.encode(
-        {"tid": tenant_id, "type": DEVICE_TYPE, "iat": now, "exp": now + timedelta(days=DEVICE_DAYS)},
+        {"tid": tenant_id, "type": DEVICE_TYPE, "kind": payload.kind, "iat": now, "exp": now + timedelta(days=DEVICE_DAYS)},
         key=settings.JWT_SECRET_KEY,
         algorithm=settings.JWT_ALGORITHM,
     )
     max_age = DEVICE_DAYS * 86400
     response.set_cookie(DEVICE_COOKIE, token, max_age=max_age, httponly=True, secure=True, samesite="lax", path="/")
-    response.set_cookie(DEVICE_MARK, tenant.get("tenant_slug") or payload.restaurant, max_age=max_age, secure=True, samesite="lax", path="/")
+    slug = tenant.get("tenant_slug") or payload.restaurant
+    response.set_cookie(DEVICE_MARK, f"{payload.kind}/{slug}", max_age=max_age, secure=True, samesite="lax", path="/")
     return {"linked": True}
 
 

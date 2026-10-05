@@ -1,6 +1,7 @@
 import API from "@/lib/axios-client"
 
 export type StaffRole = "waiter" | "reception" | "kitchen"
+export type DeviceKind = "waiter" | "kitchen" | "counter"
 
 export interface StaffMember {
   staff_id: string
@@ -49,7 +50,8 @@ export interface TableOrder {
 }
 
 // Owner dashboard.
-export const listStaff = async () => (await API.get<{ staff: StaffMember[]; table_count: number }>("/tenant/current/staff")).data
+export const listStaff = async () =>
+  (await API.get<{ staff: StaffMember[]; table_count: number; restaurant_slug: string | null }>("/tenant/current/staff")).data
 export const addStaff = async (body: { name: string; role: StaffRole; pin: string }) =>
   (await API.post<StaffMember>("/tenant/current/staff", body)).data
 export const resetStaffPin = async (id: string, pin: string) =>
@@ -82,5 +84,5 @@ export const markPaidCash = async (table_no: number) => API.post(`/staff/tables/
 export const getStaffCode = async () => (await API.get<{ code: string }>("/tenant/current/staff-code")).data.code
 export const rotateStaffCode = async () =>
   (await API.post<{ code: string }>("/tenant/current/staff-code/rotate")).data.code
-export const linkIpad = async (restaurant: string, code: string) =>
-  API.post("/staff/link", { restaurant, code })
+export const linkIpad = async (restaurant: string, code: string, kind: DeviceKind = "waiter") =>
+  API.post("/staff/link", { restaurant, code, kind })

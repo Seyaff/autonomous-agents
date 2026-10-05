@@ -100,6 +100,20 @@ export default function StaffPage() {
       </section>
 
       <section className="grid gap-3 rounded-xl border border-border bg-card p-4">
+        <h2 className="font-medium">Screen links</h2>
+        <p className="text-sm text-muted-foreground">Open each link once on its device, then type the iPad code.</p>
+        {data.data?.restaurant_slug ? (
+          <ul className="grid gap-2 font-mono text-sm">
+            <li><span className="text-muted-foreground">Waiter iPads: </span>siyaf.vercel.app/staff/{data.data.restaurant_slug}</li>
+            <li><span className="text-muted-foreground">Kitchen screen: </span>siyaf.vercel.app/kitchen/{data.data.restaurant_slug}</li>
+            <li><span className="text-muted-foreground">Counter screen: </span>siyaf.vercel.app/counter/{data.data.restaurant_slug}</li>
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">Loading links…</p>
+        )}
+      </section>
+
+      <section className="grid gap-3 rounded-xl border border-border bg-card p-4">
         <h2 className="font-medium">Tables</h2>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">Set up now: {data.data?.table_count ?? 0} tables</span>

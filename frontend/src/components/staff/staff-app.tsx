@@ -2,15 +2,12 @@
 
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { WaiterScreen } from "@/components/staff/waiter-screen"
+import { LinkScreen } from "@/components/staff/link-screen"
 import {
-  kitchenStep,
-  linkIpad,
   staffMe,
-  staffOpenOrders,
   staffRoster,
   staffSignIn,
   staffSignOut,
@@ -22,38 +19,6 @@ const ROLE_LABEL: Record<string, string> = { waiter: "Waiter", reception: "Recep
 
 function errorText(err: unknown, fallback: string) {
   return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? fallback
-}
-
-/** First use on an iPad: type the restaurant code the owner shows. After that the iPad stays linked. */
-function LinkScreen({ restaurant, onLinked }: { restaurant: string; onLinked: () => void }) {
-  const [code, setCode] = React.useState("")
-  const link = useMutation({
-    mutationFn: () => linkIpad(restaurant, code),
-    onSuccess: () => { toast.success("This iPad is linked."); onLinked() },
-    onError: (err) => toast.error(errorText(err, "That code isn't right.")),
-  })
-  return (
-    <Shell title="Link this iPad">
-      <p className="text-base">Ask the owner for the restaurant code. You only type it once on this iPad.</p>
-      <form
-        className="grid gap-3"
-        onSubmit={(e) => { e.preventDefault(); if (code.length === 6) link.mutate() }}
-      >
-        <input
-          inputMode="numeric"
-          maxLength={6}
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-          placeholder="6-digit code"
-          aria-label="Restaurant code"
-          className="h-16 rounded-2xl border-2 border-border bg-card px-4 text-center font-mono text-3xl tracking-[0.3em]"
-        />
-        <Button type="submit" className="min-h-16 text-lg" disabled={code.length !== 6 || link.isPending}>
-          {link.isPending ? "Linking…" : "Link iPad"}
-        </Button>
-      </form>
-    </Shell>
-  )
 }
 
 /** The staff app for one restaurant: sign-in, then the waiter, kitchen or reception screen. */
@@ -124,14 +89,12 @@ export function StaffApp({ restaurant }: { restaurant: string }) {
     return (
       <Shell title={`${me.data.name} · ${ROLE_LABEL[me.data.role] ?? me.data.role}`} onSignOut={signOut}>
         {me.data.role === "waiter" && <WaiterScreen />}
-        {me.data.role === "kitchen" && <KitchenScreen canCook />}
-        {me.data.role === "reception" && <KitchenScreen canCook={false} />}
       </Shell>
     )
   }
 
   if (notLinked) {
-    return <LinkScreen restaurant={restaurant} onLinked={() => queryClient.invalidateQueries({ queryKey: ["staff", "roster", restaurant] })} />
+    return <LinkScreen restaurant={restaurant} kind="waiter" onLinked={() => queryClient.invalidateQueries({ queryKey: ["staff", "roster", restaurant] })} />
   }
 
   if (picked) {
@@ -202,44 +165,5 @@ function Shell({ title, children, onBack, onSignOut }: {
       </header>
       {children}
     </main>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Kitchen and reception: open tickets
-// ---------------------------------------------------------------------------
-function KitchenScreen({ canCook }: { canCook: boolean }) {
-  const queryClient = useQueryClient()
-  const orders = useQuery({ queryKey: ["staff", "orders"], queryFn: staffOpenOrders, refetchInterval: 5000 })
-  const step = useMutation({
-    mutationFn: (args: { id: string; to: "cooking" | "ready" }) => kitchenStep(args.id, args.to),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["staff", "orders"] }),
-    onError: (err) => toast.error(errorText(err, "Could not update the ticket.")),
-  })
-  const tickets = (orders.data ?? []).filter((o) => o.status === "sent")
-
-  if (orders.isPending) return <p className="text-sm text-muted-foreground">Loading tickets…</p>
-  if (tickets.length === 0) return <p className="text-sm text-muted-foreground">No open tickets.</p>
-
-  return (
-    <div className="grid gap-3">
-      {tickets.map((o) => (
-        <article key={o.order_id} className="grid gap-2 rounded-xl border border-border bg-card p-3">
-          <div className="flex items-center justify-between">
-            <strong>Table {o.table_no}</strong>
-            <span className="text-xs text-muted-foreground">{o.kitchen_status === "new" ? "New" : o.kitchen_status === "cooking" ? "Cooking" : "Ready"} · {o.waiter_name}</span>
-          </div>
-          <ul className="text-sm">
-            {o.items.map((i) => <li key={i.name}>{i.qty} × {i.name}</li>)}
-          </ul>
-          {canCook && o.kitchen_status === "new" && (
-            <Button onClick={() => step.mutate({ id: o.order_id, to: "cooking" })} disabled={step.isPending}>Start cooking</Button>
-          )}
-          {canCook && o.kitchen_status === "cooking" && (
-            <Button onClick={() => step.mutate({ id: o.order_id, to: "ready" })} disabled={step.isPending}>Mark ready</Button>
-          )}
-        </article>
-      ))}
-    </div>
   )
 }
