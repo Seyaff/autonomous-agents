@@ -49,7 +49,8 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/terms", "/pricing", "/how-it-works", "/faq", "/guides"]
 // Public sections with sub-pages, such as /guides/<slug>. Matched by prefix.
-const PUBLIC_PREFIXES = ["/guides/", "/features/", "/compare/", "/staff/"]
+const PUBLIC_PREFIXES = ["/guides/", "/features/", "/compare/"]
+const STAFF_PREFIX = "/staff/"
 const FOUNDER_PREFIX = "/founder"
 const SETUP_PREFIX = "/setup"
 
@@ -97,6 +98,9 @@ export default function AuthProvider({
     // Handle redirects based on auth/role/setup state
     useEffect(() => {
         if (isLoading) return
+
+        // Staff screens run on their own PIN sign-in, so the owner's session never moves them.
+        if (pathname.startsWith(STAFF_PREFIX)) return
 
         const isPublicPath = PUBLIC_PATHS.some(p => pathname === p)
             || PUBLIC_PREFIXES.some(p => pathname.startsWith(p))
