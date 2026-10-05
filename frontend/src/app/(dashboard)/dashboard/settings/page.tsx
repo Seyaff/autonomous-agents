@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useTenantSettings } from "@/hooks/tenant/use-tenant-settings"
 import { useUsage } from "@/hooks/billing/use-usage"
 import { AlertPreferences } from "@/components/settings/alert-preferences"
+import { SettingsAssistant } from "@/components/settings/settings-assistant"
 import { SecuritySection } from "@/components/settings/security-section"
 import { USE_MOCKS } from "@/lib/mocks"
 import type { TenantSettingsUpdate } from "@/services/tenant/tenant.service"
@@ -82,6 +83,10 @@ function Settings() {
       <div className="shrink-0 border-b border-border bg-card px-4 py-2">
         <h1 className="text-sm font-medium">Settings</h1>
         <p className="font-mono text-[11px] text-muted-foreground">Restaurant details, the agent, and your plan</p>
+      </div>
+
+      <div className="px-4 pt-4">
+        <SettingsAssistant />
       </div>
 
       <div className="grid gap-4 p-4 lg:grid-cols-[1fr_320px]">

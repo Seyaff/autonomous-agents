@@ -14,7 +14,7 @@ from langchain_core.messages import (
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.state import CompiledStateGraph
 
-from core.llm import get_chat_model
+from core.llm import get_chat_model, is_rate_limit
 from core.settings import settings
 from memory.context_builder import build_agent_context, remember_exchange
 from services.billing import record_agent_reply, tokens_from_messages
@@ -62,8 +62,6 @@ tools = [
 
 _agents: Dict[str, CompiledStateGraph] = {}
 
-# Words in an error that mean the provider has stopped taking requests for now.
-RATE_LIMIT_HINTS = ("ratelimit", "rate limit", "429", "too many requests", "tokens per day")
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +93,7 @@ def get_customer_support_agent(provider: Optional[str] = None) -> CompiledStateG
     return _agents[key]
 
 
-def _is_rate_limit(error: Exception) -> bool:
-    text = f"{type(error).__name__} {error}".lower()
-    return any(hint in text for hint in RATE_LIMIT_HINTS)
+_is_rate_limit = is_rate_limit
 
 
 async def _invoke_with_fallback(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:

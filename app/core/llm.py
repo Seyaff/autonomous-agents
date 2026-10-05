@@ -15,6 +15,15 @@ from core.settings import settings
 logger = logging.getLogger(__name__)
 
 
+# Words in an error that mean the provider has stopped taking requests for now.
+RATE_LIMIT_HINTS = ("ratelimit", "rate limit", "429", "too many requests", "tokens per day")
+
+
+def is_rate_limit(error: Exception) -> bool:
+    text = f"{type(error).__name__} {error}".lower()
+    return any(hint in text for hint in RATE_LIMIT_HINTS)
+
+
 def get_chat_model(
     purpose: str = "agent",
     temperature: float = 0.1,

@@ -61,19 +61,7 @@ class MetaEmbeddedSignupPayload(BaseModel):
     phone_number_id: Optional[str] = Field(None, description="Phone number ID")
 
 
-class TenantUpdatePayload(BaseModel):
-    business_name: Optional[str] = None
-    business_phone: Optional[str] = None
-    address: Optional[str] = None
-    currency: Optional[str] = None
-    flat_delivery_fee: Optional[float] = None
-    avg_prep_time_minutes: Optional[int] = None
-    timezone: Optional[str] = None
-    operating_hours: Optional[List[DayHours]] = None
-    min_order_amount: Optional[float] = Field(default=None, ge=0)
-    delivery_areas: Optional[List[str]] = None
-    payment_methods: Optional[List[Literal["cash_on_delivery", "card_on_delivery", "bank_transfer"]]] = None
-    order_types: Optional[List[Literal["delivery", "takeaway", "dine_in"]]] = None
+from services.tenant_settings import TenantUpdatePayload, apply_agent_settings, apply_tenant_update
 
 
 class AgentTogglePayload(BaseModel):
@@ -253,44 +241,10 @@ async def update_current_tenant(
     if not tenant_id:
         raise HTTPException(status_code=400, detail="No active tenant found.")
 
-    update_fields: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
-    if payload.business_name:
-        update_fields["business_name"] = payload.business_name
-    if payload.business_phone:
-        update_fields["business_phone"] = payload.business_phone
-    if payload.address:
-        update_fields["address"] = payload.address
-    if payload.currency:
-        update_fields["currency"] = payload.currency
-    if payload.timezone:
-        try:
-            ZoneInfo(payload.timezone)
-        except ZoneInfoNotFoundError:
-            raise HTTPException(status_code=400, detail=f"Unknown timezone: {payload.timezone}")
-        update_fields["timezone"] = payload.timezone
-
-    if payload.flat_delivery_fee is not None:
-        update_fields["delivery_settings.flat_delivery_fee"] = payload.flat_delivery_fee
-    if payload.avg_prep_time_minutes is not None:
-        update_fields["delivery_settings.avg_prep_time_minutes"] = payload.avg_prep_time_minutes
-    if payload.operating_hours is not None:
-        if len(payload.operating_hours) != 7 or len({h.day for h in payload.operating_hours}) != 7:
-            raise HTTPException(status_code=400, detail="operating_hours needs one entry for each day of the week.")
-        update_fields["operating_hours"] = [h.model_dump() for h in payload.operating_hours]
-    if payload.min_order_amount is not None:
-        update_fields["min_order_amount"] = payload.min_order_amount
-    if payload.delivery_areas is not None:
-        update_fields["delivery_areas"] = [a.strip() for a in payload.delivery_areas if a.strip()][:50]
-    if payload.payment_methods is not None:
-        if not payload.payment_methods:
-            raise HTTPException(status_code=400, detail="Choose at least one payment method.")
-        update_fields["payment_methods"] = payload.payment_methods
-    if payload.order_types is not None:
-        if not payload.order_types:
-            raise HTTPException(status_code=400, detail="Choose at least one order type.")
-        update_fields["order_types"] = payload.order_types
-
-    await db.tenants.update_one({"tenant_id": tenant_id}, {"$set": update_fields})
+    try:
+        await apply_tenant_update(db, tenant_id, payload, user_id=current_user.get("user_id"), source="settings")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"status": "success", "message": "Restaurant settings updated."}
 
 
@@ -304,11 +258,39 @@ async def update_agent_settings(
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=400, detail="No active tenant found.")
-    await db.tenants.update_one(
-        {"tenant_id": tenant_id},
-        {"$set": {"agent_settings": payload.model_dump(), "updated_at": datetime.now(timezone.utc)}},
-    )
+    await apply_agent_settings(db, tenant_id, payload, user_id=current_user.get("user_id"), source="settings")
     return payload
+
+
+class AssistantTurn(BaseModel):
+    role: Literal["owner", "assistant"]
+    content: str = Field(max_length=2000)
+
+
+class AssistantPayload(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    history: List[AssistantTurn] = Field(default_factory=list, max_length=20)
+
+
+@tenant_routes.post("/current/assistant")
+async def owner_assistant_turn(
+    payload: AssistantPayload,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """The owner tells the assistant what to change in plain words. It makes the changes and reports them."""
+    from services.owner_assistant import run_owner_turn
+
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+    return await run_owner_turn(
+        db,
+        tenant_id,
+        current_user.get("user_id"),
+        payload.message,
+        [turn.model_dump() for turn in payload.history],
+    )
 
 
 @tenant_routes.patch("/current/agent")
