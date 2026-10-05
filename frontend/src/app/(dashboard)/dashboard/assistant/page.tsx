@@ -122,7 +122,7 @@ export default function AssistantPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 border-b border-border bg-card px-4 py-2">
         <h1 className="text-sm font-medium">Assistant</h1>
         <p className="font-mono text-[11px] text-muted-foreground">
@@ -130,7 +130,7 @@ export default function AssistantPage() {
         </p>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {messages.length === 0 && (
           <div className="mx-auto max-w-md space-y-3 pt-8 text-center">
             <p className="text-sm text-muted-foreground">Try one of these, or type your own.</p>
