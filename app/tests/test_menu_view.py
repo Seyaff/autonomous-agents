@@ -44,8 +44,8 @@ def dish(name, category="Mains", price=1200, **extra):
 def test_dishes_are_grouped_by_category_with_prices():
     db = db_with([dish("Chicken Karahi"), dish("Naan", "Breads", 40)])
     text = asyncio.run(menu_text(db, TENANT))
-    assert "Mains:" in text and "- Chicken Karahi — PKR 1,200" in text
-    assert "Breads:" in text and "- Naan — PKR 40" in text
+    assert "*Mains*" in text and "• Chicken Karahi — Rs 1,200" in text
+    assert "*Breads*" in text and "• Naan — Rs 40" in text
 
 
 def test_hidden_dishes_are_left_out():
@@ -56,7 +56,7 @@ def test_hidden_dishes_are_left_out():
 def test_sold_out_today_is_listed_separately():
     db = db_with([dish("Chicken Karahi", sold_out_on="2026-10-03"), dish("Naan", "Breads", 40)])
     text = asyncio.run(menu_text(db, TENANT, now=NOW))
-    assert "- Chicken Karahi" not in text
+    assert "• Chicken Karahi" not in text
     assert "Sold out today: Chicken Karahi" in text
 
 
@@ -68,3 +68,21 @@ def test_a_category_filter_narrows_the_list():
 
 def test_no_dish_list_gives_an_empty_answer():
     assert asyncio.run(menu_text(db_with([]), TENANT)) == ""
+
+
+def test_dishes_without_a_category_are_grouped_by_name():
+    db = db_with([dish("Chicken Karahi", "Other"), dish("Plain Naan", "", 70), dish("Mint Lemonade", "Other", 260)])
+    text = asyncio.run(menu_text(db, TENANT))
+    assert "*Karahi*" in text and "• Chicken Karahi" in text
+    assert "*Breads*" in text and "• Plain Naan — Rs 70" in text
+    assert "*Drinks*" in text and "• Mint Lemonade — Rs 260" in text
+
+
+def test_generic_descriptions_are_not_shown():
+    db = db_with([dish("Chicken Karahi", "Mains", description="Fresh karahi cooking.")])
+    assert "Fresh karahi cooking" not in asyncio.run(menu_text(db, TENANT))
+
+
+def test_owner_categories_are_kept_as_they_are():
+    db = db_with([dish("Chicken Karahi", "Specials")])
+    assert "*Specials*" in asyncio.run(menu_text(db, TENANT))

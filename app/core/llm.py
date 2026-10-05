@@ -19,6 +19,7 @@ def get_chat_model(
     purpose: str = "agent",
     temperature: float = 0.1,
     model: Optional[str] = None,
+    provider: Optional[str] = None,
 ):
     """
     Returns a LangChain chat model chosen by `settings.LLM_PROVIDER`.
@@ -31,8 +32,9 @@ def get_chat_model(
         temperature: sampling temperature.
         model: explicit model name override; defaults to the provider's
             configured model in settings.
+        provider: "groq" or "openai". Defaults to settings.LLM_PROVIDER.
     """
-    provider = (settings.LLM_PROVIDER or "groq").lower()
+    provider = (provider or settings.LLM_PROVIDER or "groq").lower()
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI
