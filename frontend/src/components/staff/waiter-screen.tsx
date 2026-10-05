@@ -22,6 +22,7 @@ const STATUS_TEXT: Record<TableState["status"], string> = {
   sent: "Order in kitchen",
   ready: "Food ready",
   served: "Served",
+  billing: "Bill at counter",
   bill: "Bill printed",
 }
 
@@ -30,6 +31,7 @@ const TILE_STYLE: Record<TableState["status"], string> = {
   sent: "border-amber-500 bg-card",
   ready: "border-green-600 bg-green-50 dark:bg-green-950/40",
   served: "border-green-600 bg-card",
+  billing: "border-amber-500 bg-card",
   bill: "border-foreground bg-card",
 }
 
@@ -86,6 +88,8 @@ function TableScreen({ tableNo, onDone }: { tableNo: number; onDone: () => void 
   const [billTotal, setBillTotal] = React.useState<number | null>(null)
   const [billing, setBilling] = React.useState(false)
   const [customerName, setCustomerName] = React.useState("")
+  const nameFromOrders = (orders.data ?? []).find((o) => o.table_no === tableNo && o.customer_name)?.customer_name ?? ""
+  const nameForOrder = customerName || nameFromOrders
   const [customerPhone, setCustomerPhone] = React.useState("")
 
   const here: TableOrder[] = (orders.data ?? []).filter((o) => o.table_no === tableNo)
@@ -100,8 +104,8 @@ function TableScreen({ tableNo, onDone }: { tableNo: number; onDone: () => void 
   }
 
   const send = useMutation({
-    mutationFn: () => sendTableOrder(tableNo, Object.entries(cart).map(([name, qty]) => ({ name, qty }))),
-    onSuccess: () => { setCart({}); toast.success("Sent to the kitchen."); refresh() },
+    mutationFn: () => sendTableOrder(tableNo, Object.entries(cart).map(([name, qty]) => ({ name, qty })), nameForOrder),
+    onSuccess: () => { setCart({}); setCustomerName(nameForOrder); toast.success("Sent to the kitchen."); refresh() },
     onError: (err) => toast.error(errorText(err, "Could not send. Try again.")),
   })
   const served = useMutation({
@@ -110,7 +114,7 @@ function TableScreen({ tableNo, onDone }: { tableNo: number; onDone: () => void 
     onError: (err) => toast.error(errorText(err, "Could not update.")),
   })
   const bill = useMutation({
-    mutationFn: () => requestBill(tableNo, { customer_name: customerName, customer_phone: customerPhone }),
+    mutationFn: () => requestBill(tableNo, { customer_name: customerName || nameFromOrders, customer_phone: customerPhone }),
     onSuccess: (r) => {
       setBillTotal(r.total)
       setBilling(false)
@@ -240,6 +244,18 @@ function TableScreen({ tableNo, onDone }: { tableNo: number; onDone: () => void 
                 Not yet
               </button>
             </section>
+          )}
+
+          {cartLines.length > 0 && (
+            <label className="grid gap-1 text-base">
+              <span>Customer name (optional)</span>
+              <input
+                value={nameForOrder}
+                maxLength={60}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="min-h-14 rounded-xl border-2 border-border bg-background px-3 text-lg"
+              />
+            </label>
           )}
 
           {cartLines.length > 0 && (

@@ -263,6 +263,7 @@ class OrderLine(BaseModel):
 class OrderBody(BaseModel):
     table_no: int
     items: List[OrderLine]
+    customer_name: Optional[str] = Field(default=None, max_length=60)
 
 
 class KitchenBody(BaseModel):
@@ -291,6 +292,7 @@ async def staff_send_order(payload: OrderBody, staff: dict = Depends(staff_with(
         return await svc.send_order(
             db, _tenant_of(staff), staff, payload.table_no,
             [{"name": i.name, "qty": i.qty} for i in payload.items],
+            payload.customer_name,
         )
     except StaffError as e:
         raise _fail(e)
