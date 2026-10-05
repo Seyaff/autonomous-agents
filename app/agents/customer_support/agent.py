@@ -15,6 +15,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.graph.state import CompiledStateGraph
 
 from core.llm import get_chat_model
+from core.settings import settings
 from memory.context_builder import build_agent_context, remember_exchange
 from services.billing import record_agent_reply, tokens_from_messages
 from services.availability import sold_out_names
@@ -49,8 +50,6 @@ ERROR_REPLY = (
 # ---------------------------------------------------------------------------
 # LLM + Tools
 # ---------------------------------------------------------------------------
-model = get_chat_model(purpose="customer_support", temperature=0.1)
-
 tools = [
     get_menu,
     search_uploaded_documents,
@@ -61,7 +60,10 @@ tools = [
     escalate_to_owner,
 ]
 
-_agent: CompiledStateGraph | None = None
+_agents: Dict[str, CompiledStateGraph] = {}
+
+# Words in an error that mean the provider has stopped taking requests for now.
+RATE_LIMIT_HINTS = ("ratelimit", "rate limit", "429", "too many requests", "tokens per day")
 
 
 # ---------------------------------------------------------------------------
@@ -83,13 +85,32 @@ async def _get_thread_lock(key: str) -> asyncio.Lock:
         return lock
 
 
-def get_customer_support_agent() -> CompiledStateGraph:
-    """One compiled agent for the process. It has no checkpointer on purpose:
+def get_customer_support_agent(provider: Optional[str] = None) -> CompiledStateGraph:
+    """One compiled agent per provider for the process. No checkpointer on purpose:
     history is rebuilt from stored data every turn, so nothing is stored twice."""
-    global _agent
-    if _agent is None:
-        _agent = create_react_agent(model=model, tools=tools)
-    return _agent
+    key = (provider or settings.LLM_PROVIDER).lower()
+    if key not in _agents:
+        model = get_chat_model(purpose="customer_support", temperature=0.1, provider=key)
+        _agents[key] = create_react_agent(model=model, tools=tools)
+    return _agents[key]
+
+
+def _is_rate_limit(error: Exception) -> bool:
+    text = f"{type(error).__name__} {error}".lower()
+    return any(hint in text for hint in RATE_LIMIT_HINTS)
+
+
+async def _invoke_with_fallback(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    """Runs the turn on the main provider. If that provider is rate-limited, runs the same turn on the fallback."""
+    primary = settings.LLM_PROVIDER.lower()
+    fallback = (settings.LLM_FALLBACK_PROVIDER or "").lower()
+    try:
+        return await get_customer_support_agent(primary).ainvoke(state, config=config)
+    except Exception as e:
+        if not fallback or fallback == primary or not _is_rate_limit(e):
+            raise
+        logger.warning(f"[llm] {primary} is rate-limited; retrying this turn on {fallback}: {type(e).__name__}")
+        return await get_customer_support_agent(fallback).ainvoke(state, config=config)
 
 
 def _extract_latest_ai_text(messages: List[BaseMessage]) -> str:
@@ -195,7 +216,7 @@ async def run_agent_turn(
         }
 
         try:
-            result = await get_customer_support_agent().ainvoke({"messages": messages}, config=config)
+            result = await _invoke_with_fallback({"messages": messages}, config)
         except Exception as e:
             logger.exception(f"Agent invocation failed for {tenant_id}:{customer_phone}: {e}")
             if not test_mode:

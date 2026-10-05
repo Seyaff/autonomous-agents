@@ -44,6 +44,9 @@ class Settings(BaseSettings):
         default="groq",
         description="Which LLM provider agents use: 'groq' or 'openai'.",
     )
+    # When the main provider hits its rate limit (e.g. Groq's daily cap), the turn is retried on this one.
+    # Empty turns the fallback off.
+    LLM_FALLBACK_PROVIDER: str = Field(default="openai", description="Provider to retry on when the main one is rate-limited. Empty to turn off.")
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "openai/gpt-oss-120b"
     OPENAI_API_KEY: str = ""
