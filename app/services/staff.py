@@ -147,12 +147,11 @@ async def set_table_count(db, tenant_id: str, count: int) -> int:
 # Staff: sign-in and sessions
 # ---------------------------------------------------------------------------
 async def roster(db, tenant_id: str) -> List[Dict[str, Any]]:
-    """Names the iPad shows on the sign-in screen. Waiters only, no PINs."""
+    """Names for the sign-in screen. No PINs. A locked person is listed, so the screen can say why."""
     rows = await db[STAFF].find(
-        {"tenant_id": tenant_id, "role": "waiter", "removed": {"$ne": True}, "locked": {"$ne": True}},
-        {"_id": 0, "staff_id": 1, "name": 1},
-    ).to_list(length=200)
-    return [{"staff_id": r["staff_id"], "name": r["name"]} for r in rows]
+        {"tenant_id": tenant_id, "removed": {"$ne": True}}, {"_id": 0},
+    ).to_list(length=300)
+    return [{"staff_id": r["staff_id"], "name": r["name"], "role": r["role"], "locked": bool(r.get("locked"))} for r in rows]
 
 
 def _make_token(tenant_id: str, staff_id: str, session_id: str) -> str:
@@ -174,8 +173,6 @@ def _make_token(tenant_id: str, staff_id: str, session_id: str) -> str:
 
 async def sign_in(db, tenant_id: str, staff_id: str, pin: str, device: str) -> Dict[str, Any]:
     staff = await _get_staff(db, tenant_id, staff_id)
-    if staff.get("role") != "waiter":
-        raise StaffError("Only waiters sign in on the iPad.")
     if staff.get("locked"):
         raise StaffError("This PIN is locked. Ask the owner to unlock it.")
     if not pin_matches(pin or "", staff["pin_hash"]):
@@ -389,6 +386,20 @@ async def mark_paid_cash(db, tenant_id: str, staff: Dict[str, Any], table_no: in
     if result.matched_count == 0:
         raise StaffError("Print the bill before marking it paid.")
     return {"table_no": table_no, "status": "paid", "method": "cash"}
+
+
+async def staff_menu(db, tenant_id: str, tenant: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The dishes a waiter can order today: not hidden, sold-out flag included."""
+    today = today_for(tenant)
+    rows = await db[MENU_ITEMS].find(
+        {"tenant_id": tenant_id, "hidden": {"$ne": True}},
+        {"_id": 0, "name": 1, "category": 1, "price": 1, "sold_out_on": 1},
+    ).to_list(length=500)
+    return [
+        {"name": r["name"], "category": r.get("category") or "Other", "price": float(r.get("price") or 0),
+         "sold_out": r.get("sold_out_on") == today}
+        for r in sorted(rows, key=lambda r: ((r.get("category") or "Other"), r["name"]))
+    ]
 
 
 async def open_orders(db, tenant_id: str) -> List[Dict[str, Any]]:

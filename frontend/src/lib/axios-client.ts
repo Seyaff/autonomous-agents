@@ -33,6 +33,9 @@ API.interceptors.request.use(
 // Only one refresh runs at a time. Requests that fail meanwhile wait for it, then retry.
 let refreshing: Promise<boolean> | null = null
 const NO_REFRESH = /\/auth\/(login|signup|refresh|logout|logout-all|google)/
+// Staff screens (the iPad and kitchen) have their own PIN session. An owner's refresh cookie
+// can't renew it, and a 401 there means "sign in with your PIN", not "log in to the dashboard".
+const STAFF_PATH = /^\/staff\//
 
 function refreshSession(): Promise<boolean> {
   if (!refreshing) {
@@ -66,7 +69,8 @@ API.interceptors.response.use(
     const status = error.response?.status
 
     // An expired access token is renewed once from the refresh cookie, then the request is retried.
-    if (status === 401 && error.config && !error.config._retried && !NO_REFRESH.test(error.config.url ?? "")) {
+    const staffRequest = STAFF_PATH.test(error.config?.url ?? "")
+    if (status === 401 && error.config && !error.config._retried && !NO_REFRESH.test(error.config.url ?? "") && !staffRequest) {
       if (await refreshSession()) {
         error.config._retried = true
         return API.request(error.config)
@@ -86,7 +90,7 @@ API.interceptors.response.use(
       // signed-in user whose session ran out is sent back to login.
       const publicPage = ["/login", "/signup", "/privacy"].includes(currentPath)
       const sessionCheck = /\/(user|auth)\/me$/.test(error.config?.url ?? "")
-      if (!publicPage && !isAuthEndpoint && !sessionCheck) {
+      if (!publicPage && !isAuthEndpoint && !sessionCheck && !staffRequest) {
         toast.error("Session expired. Please log in again.")
         if (typeof window !== "undefined") {
           window.location.href = "/login"

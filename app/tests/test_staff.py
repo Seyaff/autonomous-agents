@@ -190,11 +190,11 @@ def test_resetting_the_pin_signs_the_device_out():
     assert sign_in(db, staff["staff_id"], "5555")["token"]
 
 
-def test_only_waiters_sign_in_on_the_ipad():
+def test_kitchen_signs_in_with_its_own_pin():
     db = make_db()
     kitchen = run(svc.create_staff(db, TENANT, "Imran", "kitchen", "3690"))
-    with pytest.raises(StaffError, match="Only waiters"):
-        sign_in(db, kitchen["staff_id"], "3690")
+    token = sign_in(db, kitchen["staff_id"], "3690")["token"]
+    assert current(db, token)["role"] == "kitchen"
 
 
 def test_removed_person_is_signed_out_and_leaves_the_roster():
@@ -285,3 +285,16 @@ def test_cannot_mark_paid_before_the_bill_is_printed():
     run(svc.send_order(db, TENANT, waiter, 1, [{"name": "Plain Naan", "qty": 1}]))
     with pytest.raises(StaffError, match="Print the bill"):
         run(svc.mark_paid_cash(db, TENANT, waiter, 1))
+
+
+def test_waiter_menu_marks_sold_out_and_leaves_out_hidden_dishes():
+    db = make_db([
+        {"tenant_id": TENANT, "name": "Chicken Karahi", "price": 1650, "category": "Karahi"},
+        {"tenant_id": TENANT, "name": "Mutton Karahi", "price": 2650, "category": "Karahi", "sold_out_on": today_for(TODAY_TENANT)},
+        {"tenant_id": TENANT, "name": "Old Dish", "price": 100, "category": "Other", "hidden": True},
+    ])
+    items = run(svc.staff_menu(db, TENANT, TODAY_TENANT))
+    names = {i["name"]: i for i in items}
+    assert "Old Dish" not in names
+    assert names["Mutton Karahi"]["sold_out"] is True
+    assert names["Chicken Karahi"]["sold_out"] is False
