@@ -54,7 +54,14 @@ async def _resolve_user_from_token(token: Optional[str], database) -> dict:
 async def get_current_user(request: Request, database=Depends(get_database)) -> dict:
     """Authenticates any signed-in user (FOUNDER or OWNER), no role check."""
     token = request.cookies.get("access_token")
-    return await _resolve_user_from_token(token, database)
+    user = await _resolve_user_from_token(token, database)
+    # A restaurant that was deleted must not stay linked, or every page fails with "record not found".
+    # Unlink it, so the owner goes through setup again.
+    tenant_id = user.get("active_tenant_id")
+    if tenant_id and not await database["tenants"].find_one({"tenant_id": tenant_id}, {"_id": 1}):
+        await database["users"].update_one({"user_id": user["user_id"]}, {"$unset": {"active_tenant_id": ""}})
+        user.pop("active_tenant_id", None)
+    return user
 
 
 async def require_owner_role(request: Request, database=Depends(get_database)) -> dict:
