@@ -75,3 +75,30 @@ def test_payment_links_go_through_the_site_proxy_once():
     base = Settings().PUBLIC_API_BASE
     assert base.endswith("/api")
     assert "/v1" not in base
+
+
+def test_txn_ref_time_is_karachi_time():
+    """02:28:58 UTC is 07:28:58 in Karachi. The reference must carry the Karachi time, like the other timestamps."""
+    from datetime import datetime, timezone
+
+    from services import jazzcash
+
+    now = datetime(2026, 10, 5, 2, 28, 58, tzinfo=timezone.utc)
+    ref = jazzcash.txn_ref("INV-2026-000012", now)
+    assert ref.endswith("072858")
+    assert len(ref) <= 20
+
+
+def test_pending_codes_are_never_success():
+    from services import jazzcash
+
+    assert set(jazzcash.PENDING_CODES) == {"124", "157"}
+    assert jazzcash.SUCCESS_CODE not in jazzcash.PENDING_CODES
+
+
+def test_transaction_type_defaults_to_empty(monkeypatch):
+    from core.settings import Settings
+
+    monkeypatch.delenv("JC_TXN_TYPE", raising=False)
+    monkeypatch.delenv("JAZZCASH_TXN_TYPE", raising=False)
+    assert Settings(_env_file=None).JAZZCASH_TXN_TYPE == ""

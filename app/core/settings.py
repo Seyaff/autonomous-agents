@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     JAZZCASH_MERCHANT_ID: str = ""
     JAZZCASH_PASSWORD: str = ""
     JAZZCASH_INTEGRITY_SALT: str = ""
+    # Payment type sent to JazzCash. Empty lets the hosted page show all payment methods.
+    JAZZCASH_TXN_TYPE: str = Field(default="", validation_alias=AliasChoices("JC_TXN_TYPE", "JAZZCASH_TXN_TYPE"))
     EASYPAISA_STORE_ID: str = ""
     EASYPAISA_HASH_KEY: str = ""
     PAYMENT_RETURN_URL: str = ""

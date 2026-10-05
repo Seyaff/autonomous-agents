@@ -3,6 +3,7 @@
 import logging
 
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,6 +12,10 @@ from core.database import get_database
 from core.settings import settings
 from services import jazzcash
 from services.online_payments import AWAITING_PAYMENT, ProviderNotConfigured, expired, handle_payment_webhook
+
+# Outcomes from handle_payment_webhook that mean the money has been received.
+# "already recorded" is a repeated callback for a payment that was already marked paid.
+PAID_OUTCOMES = {"marked paid", "invoice paid", "already recorded"}
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +54,26 @@ async def jazzcash_return(request: Request):
     """Where JazzCash sends the customer back. The signature decides what happened, not the page."""
     body = await request.body()
     frontend = settings.frontend_origin
+    fields = jazzcash.parse_callback(body)
+    code = fields.get("pp_ResponseCode", "")
+    message = fields.get("pp_ResponseMessage", "")
     try:
         outcome = await handle_payment_webhook(get_database(), "jazzcash", {}, body)
     except Exception as e:
         logger.warning(f"[payments] JazzCash return refused: {e}")
-        return RedirectResponse(url=f"{frontend}/dashboard?payment=failed", status_code=303)
-    logger.info(f"[payments] JazzCash return: {outcome}")
-    result = "ok" if outcome == "marked paid" else "failed"
-    return RedirectResponse(url=f"{frontend}/dashboard?payment={result}", status_code=303)
+        return _dashboard_redirect(frontend, "failed", code, "The payment could not be verified.")
+    logger.info(f"[payments] JazzCash return: {outcome} (code {code})")
+    if outcome in PAID_OUTCOMES:
+        return _dashboard_redirect(frontend, "ok", code, message)
+    if outcome == "payment pending":
+        return _dashboard_redirect(frontend, "pending", code, message)
+    return _dashboard_redirect(frontend, "failed", code, message)
+
+
+def _dashboard_redirect(frontend: str, result: str, code: str, message: str) -> RedirectResponse:
+    """Sends the customer back to the dashboard with the result. The message is shown to them, so no secrets go here."""
+    query = urlencode({"payment": result, "code": code, "message": message})
+    return RedirectResponse(url=f"{frontend}/dashboard?{query}", status_code=303)
 
 
 @payments_router.post("/webhook/{provider}")
