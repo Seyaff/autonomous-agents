@@ -266,6 +266,7 @@ dependencies = [
     { name = "pypdf" },
     { name = "python-multipart" },
     { name = "structlog" },
+    { name = "tzdata" },
 ]
 
 [package.dev-dependencies]
@@ -307,6 +308,7 @@ requires-dist = [
     { name = "pypdf", specifier = ">=6.19.0" },
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "structlog", specifier = ">=26.1.0" },
+    { name = "tzdata", specifier = ">=2026.4" },
 ]
 
 [package.metadata.requires-dev]

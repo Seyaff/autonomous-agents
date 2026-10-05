@@ -17,11 +17,15 @@ from core.settings import settings
 
 KARACHI = ZoneInfo("Asia/Karachi")
 SUCCESS_CODE = "000"
+# Codes JazzCash uses for a payment that is still being processed. Nothing is marked paid yet.
+PENDING_CODES = ("124", "157")
 
 
 def txn_ref(order_id: str, now: datetime) -> str:
-    """JazzCash wants an alphanumeric reference. Keep it unique per attempt, and matchable to the order."""
-    return f"T{order_id.replace('-', '')}{now.strftime('%H%M%S')}"
+    """JazzCash wants an alphanumeric reference. Keep it unique per attempt, and matchable to the order.
+    The time part is Karachi time, like every other JazzCash timestamp."""
+    local = now.astimezone(KARACHI)
+    return f"T{order_id.replace('-', '')}{local.strftime('%H%M%S')}"
 
 
 def signed_fields(fields: Dict[str, str], salt: str) -> Dict[str, str]:
@@ -47,7 +51,7 @@ def payment_fields(*, reference: str, amount_pkr: int, description: str, return_
     expiry = (now + timedelta(minutes=15)).astimezone(KARACHI)
     return {
         "pp_Version": "1.1",
-        "pp_TxnType": "MWALLET",
+        "pp_TxnType": settings.JAZZCASH_TXN_TYPE,
         "pp_Language": "EN",
         "pp_MerchantID": settings.JAZZCASH_MERCHANT_ID,
         "pp_Password": settings.JAZZCASH_PASSWORD,

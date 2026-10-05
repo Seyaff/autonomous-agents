@@ -64,10 +64,17 @@ class JazzCashProvider:
 
         fields = jazzcash.parse_callback(body)
         jazzcash.verify_callback(fields, settings.JAZZCASH_INTEGRITY_SALT)
+        code = fields.get("pp_ResponseCode", "")
+        if code == jazzcash.SUCCESS_CODE:
+            status = "paid"
+        elif code in jazzcash.PENDING_CODES:
+            status = "pending"
+        else:
+            status = "failed"
         return {
             "reference": fields.get("pp_TxnRefNo", ""),
             "amount_pkr": int(fields.get("pp_Amount", "0")) // 100,
-            "status": "paid" if fields.get("pp_ResponseCode") == jazzcash.SUCCESS_CODE else "failed",
+            "status": status,
             "response_code": fields.get("pp_ResponseCode", ""),
             "response_message": fields.get("pp_ResponseMessage", ""),
         }
@@ -228,6 +235,9 @@ async def handle_payment_webhook(db, provider_name: str, headers: Dict[str, str]
     if provider is None:
         return "unknown provider"
     event = provider.verify_webhook(headers, body)  # raises if the signature is wrong
+    if event.get("status") == "pending":
+        logger.info(f"[payments] JazzCash payment {event.get('reference')} is pending: code {event.get('response_code')}")
+        return "payment pending"
     if event.get("status") != "paid":
         logger.warning(f"[payments] JazzCash payment {event.get('reference')} not successful: code {event.get('response_code')}, {event.get('response_message')}")
         return "not a successful payment"

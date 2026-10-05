@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { toast } from "sonner"
 
 import { KpiStrip } from "@/components/console/kpi-strip"
 import { QueuePane } from "@/components/console/queue-pane"
@@ -19,6 +20,18 @@ import { SetupChecklistCard } from "@/components/setup/setup-checklist-card"
 export default function DashboardPage() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [justPrintedId, setJustPrintedId] = React.useState<string | null>(null)
+
+  // Shows the result of a payment the customer just made, then clears it from the address bar.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const result = params.get("payment")
+    if (!result) return
+    const message = params.get("message")
+    if (result === "ok") toast.success("Payment received.")
+    else if (result === "pending") toast.message("Payment is still processing. We'll update your account once it's confirmed.")
+    else toast.error(message ? `Payment not completed: ${message}` : "Payment not completed.")
+    window.history.replaceState(null, "", window.location.pathname)
+  }, [])
 
   const { data: tenant } = useCurrentTenant()
   const currency = tenant?.currency ?? "USD"
