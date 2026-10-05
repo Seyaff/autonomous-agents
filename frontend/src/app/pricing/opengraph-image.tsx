@@ -17,7 +17,7 @@ export default function Image() {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ fontSize: 68, fontWeight: 700, lineHeight: 1.1 }}>Siyaf pricing</div>
-          <div style={{ fontSize: 32, color: "#a1a1aa" }}>From Rs 2,999 a month. 14-day free trial.</div>
+          <div style={{ fontSize: 32, color: "#a1a1aa" }}>From Rs 2,999 a month. 3-day free trial.</div>
         </div>
       </div>
     ),

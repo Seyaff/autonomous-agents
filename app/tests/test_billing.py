@@ -58,7 +58,7 @@ def test_plans_match_pricing_md():
 def test_new_restaurant_gets_a_14_day_trial():
     sub = new_subscription(NOW)
     assert sub["status"] == "trialing"
-    assert sub["trial_ends_at"] == NOW + timedelta(days=14)
+    assert sub["trial_ends_at"] == NOW + timedelta(days=3)
     assert sub["plan"] == "basic"
 
 

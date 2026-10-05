@@ -18,7 +18,7 @@ One subscription per restaurant (per tenant / WhatsApp number), billed in PKR.
 
 - **One "AI chat"** = one customer conversation the agent replied in during the month. This is already how `services/billing.py` counts usage: each conversation counts once per calendar month.
 - **Yearly billing:** 10× the monthly price (2 months free). Rs 29,990 / Rs 59,990 / Rs 119,990.
-- **Free trial:** 14 days, capped at 100 AI chats. No payment needed to start.
+- **Free trial:** 3 days, capped at 100 AI chats. No payment needed to start.
 - **Extra chats** are added to the next invoice. They are never charged mid-month.
 - **WhatsApp fees are not included.** Meta bills each restaurant directly for replies after the first 1,000 free each month. Siyaf never pays or resells Meta fees.
 
@@ -75,7 +75,7 @@ class Invoice(BaseModel):
     payment_reference: Optional[str]    # "DUMMY-…"
 ```
 
-In `services/billing.py`, replace the placeholder `PLANS` with the table in section 1: keys, prices and included chats. Map existing tenants with plan `starter` / `growth` / `scale` to `basic` / `standard` / `pro`, and give existing tenants a 14-day trial starting now.
+In `services/billing.py`, replace the placeholder `PLANS` with the table in section 1: keys, prices and included chats. Map existing tenants with plan `starter` / `growth` / `scale` to `basic` / `standard` / `pro`, and give existing tenants a 3-day trial starting now.
 
 ---
 
@@ -83,7 +83,7 @@ In `services/billing.py`, replace the placeholder `PLANS` with the table in sect
 
 | When | What happens |
 |---|---|
-| Restaurant created | `status = trialing`, `trial_ends_at = now + 14 days`. The trial cap of 100 chats is enforced by the existing usage counter. |
+| Restaurant created | `status = trialing`, `trial_ends_at = now + 3 days`. The trial cap of 100 chats is enforced by the existing usage counter. |
 | Trial ends or reaches 100 chats | The owner must choose a plan and pay. Until then, the agent stops replying to customers, and the dashboard shows a blocking banner with a "Choose a plan" button. |
 | Owner picks a plan and pays | An invoice is created for the first period. The dummy provider pays it, the invoice is marked `paid`, `status = active`, and the period starts now. |
 | Each period end | A daily scheduled job creates the next invoice: plan fee plus extra chats from the closing period, `status = open`, due in 7 days. The owner pays it from the Billing page. |

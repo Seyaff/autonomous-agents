@@ -129,8 +129,8 @@ async def run_billing_jobs(db, now: datetime | None = None) -> Dict[str, int]:
             mail.past_due(to, owner_tenant, invoice)
             counts["past_due"] += 1
 
-    # 3. Trial reminders: three days and one day before the end, then once it has ended.
-    trialing = db["tenants"].find({"subscription.status": "trialing", "subscription.trial_ends_at": {"$lte": now + timedelta(days=3)}})
+    # 3. Trial reminders: one day before the end (a 3-day trial has no room for more), then once it has ended.
+    trialing = db["tenants"].find({"subscription.status": "trialing", "subscription.trial_ends_at": {"$lte": now + timedelta(days=1)}})
     async for tenant in trialing:
         ends = _utc(tenant["subscription"]["trial_ends_at"])
         to, owner_tenant = await mail.owner_context(db, tenant["tenant_id"])
@@ -140,7 +140,7 @@ async def run_billing_jobs(db, now: datetime | None = None) -> Dict[str, int]:
             counts["trial_ended"] = counts.get("trial_ended", 0) + 1
             continue
         days_left = math.ceil(seconds_left / 86400)
-        if days_left in (3, 1):
+        if days_left == 1:
             mail.trial_ending(to, owner_tenant, tenant["tenant_id"], days_left)
             counts["trial_reminders"] = counts.get("trial_reminders", 0) + 1
 

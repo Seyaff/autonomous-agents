@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PLAN = "basic"
 EXTRA_CHAT_PKR = 3
-TRIAL_DAYS = 14
+TRIAL_DAYS = 3
 TRIAL_CHAT_CAP = 100
 
 # PRICING.md section 1. Prices in PKR, whole rupees.
@@ -67,7 +67,7 @@ def current_period(now: Optional[datetime] = None) -> str:
 
 
 def new_subscription(now: Optional[datetime] = None) -> Dict[str, Any]:
-    """A new restaurant starts on a 14-day trial. No payment needed."""
+    """A new restaurant starts on a 3-day trial. No payment needed."""
     now = now or datetime.now(timezone.utc)
     return {
         "plan": DEFAULT_PLAN,
@@ -134,7 +134,7 @@ async def chats_used(db, tenant_id: str, now: Optional[datetime] = None) -> int:
 
 
 async def migrate_subscriptions(db, now: Optional[datetime] = None) -> int:
-    """Gives tenants created before billing a subscription, with a 14-day trial starting now."""
+    """Gives tenants created before billing a subscription, with a 3-day trial starting now."""
     now = now or datetime.now(timezone.utc)
     migrated = 0
     query = {"subscription": {"$exists": False}}
