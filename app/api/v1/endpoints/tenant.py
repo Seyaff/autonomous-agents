@@ -1,3 +1,4 @@
+import json
 import uuid
 import logging
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from fastapi import (
 import re
 
 from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from bson.errors import InvalidId
 
@@ -262,34 +264,46 @@ async def update_agent_settings(
     return payload
 
 
-class AssistantTurn(BaseModel):
-    role: Literal["owner", "assistant"]
-    content: str = Field(max_length=2000)
-
-
 class AssistantPayload(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
-    history: List[AssistantTurn] = Field(default_factory=list, max_length=20)
 
 
-@tenant_routes.post("/current/assistant")
-async def owner_assistant_turn(
-    payload: AssistantPayload,
+@tenant_routes.get("/current/assistant/history")
+async def owner_assistant_history(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """The owner tells the assistant what to change in plain words. It makes the changes and reports them."""
-    from services.owner_assistant import run_owner_turn
+    """The owner's saved conversation with the settings assistant, oldest first."""
+    from services.owner_assistant import load_transcript
 
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=400, detail="No active tenant found.")
-    return await run_owner_turn(
-        db,
-        tenant_id,
-        current_user.get("user_id"),
-        payload.message,
-        [turn.model_dump() for turn in payload.history],
+    return {"messages": await load_transcript(db, tenant_id, current_user.get("user_id"))}
+
+
+@tenant_routes.post("/current/assistant/stream")
+async def owner_assistant_stream(
+    payload: AssistantPayload,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """One turn of the owner's chat. Streams events as server-sent events: text tokens, tool steps, saved changes, then done."""
+    from services.owner_assistant import stream_owner_turn
+
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+    user_id = current_user.get("user_id")
+
+    async def events():
+        async for event in stream_owner_turn(db, tenant_id, user_id, payload.message):
+            yield f"data: {json.dumps(event, default=str)}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
