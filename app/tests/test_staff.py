@@ -298,3 +298,32 @@ def test_waiter_menu_marks_sold_out_and_leaves_out_hidden_dishes():
     assert "Old Dish" not in names
     assert names["Mutton Karahi"]["sold_out"] is True
     assert names["Chicken Karahi"]["sold_out"] is False
+
+
+def test_named_bill_goes_to_the_counter_as_a_receipt_and_can_be_marked_printed():
+    db = make_db()
+    waiter = current(db, sign_in(db, add_waiter(db)["staff_id"], "1234")["token"])
+    run(svc.send_order(db, TENANT, waiter, 1, [{"name": "Chicken Karahi", "qty": 1}, {"name": "Plain Naan", "qty": 2}]))
+    run(svc.request_bill(db, TENANT, waiter, 1, customer_name="Mr Khan", customer_phone="0300 1234567"))
+
+    jobs = run(svc.list_print_jobs(db, TENANT))
+    assert len(jobs) == 1
+    receipt = jobs[0]["receipt"]
+    assert receipt["customer_name"] == "Mr Khan"
+    assert receipt["total"] == 1650 + 2 * 70
+    assert receipt["waiter"] == "Ali"
+
+    run(svc.mark_printed(db, TENANT, jobs[0]["job_id"]))
+    assert run(svc.list_print_jobs(db, TENANT)) == []
+    with pytest.raises(StaffError):
+        run(svc.mark_printed(db, TENANT, jobs[0]["job_id"]))
+
+
+def test_bill_without_a_name_is_still_fine_and_a_bad_phone_is_refused():
+    db = make_db()
+    waiter = current(db, sign_in(db, add_waiter(db)["staff_id"], "1234")["token"])
+    run(svc.send_order(db, TENANT, waiter, 1, [{"name": "Plain Naan", "qty": 1}]))
+    with pytest.raises(StaffError, match="phone"):
+        run(svc.request_bill(db, TENANT, waiter, 1, customer_phone="call me"))
+    run(svc.request_bill(db, TENANT, waiter, 1))
+    assert run(svc.list_print_jobs(db, TENANT))[0]["receipt"]["customer_name"] is None

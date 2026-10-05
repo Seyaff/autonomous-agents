@@ -76,8 +76,27 @@ export const sendTableOrder = async (table_no: number, items: { name: string; qt
 export const markServed = async (order_id: string) => API.post(`/staff/orders/${order_id}/served`)
 export const kitchenStep = async (order_id: string, status: "cooking" | "ready") =>
   API.post(`/staff/orders/${order_id}/kitchen`, { status })
-export const requestBill = async (table_no: number) =>
-  (await API.post<{ total: number }>(`/staff/tables/${table_no}/bill`)).data
+export const requestBill = async (table_no: number, customer?: { customer_name?: string; customer_phone?: string }) =>
+  (await API.post<{ total: number }>(`/staff/tables/${table_no}/bill`, customer ?? {})).data
+
+export interface PrintJob {
+  job_id: string
+  kind: string
+  status: string
+  receipt?: {
+    restaurant: string
+    table_no: number
+    customer_name: string | null
+    customer_phone: string | null
+    waiter: string
+    items: { qty: number; name: string; amount: number }[]
+    total: number
+    payment: string
+  }
+}
+
+export const listPrintJobs = async () => (await API.get<{ jobs: PrintJob[] }>("/staff/print-jobs")).data.jobs
+export const markPrinted = async (job_id: string) => API.post(`/staff/print-jobs/${job_id}/printed`)
 export const markPaidCash = async (table_no: number) => API.post(`/staff/tables/${table_no}/paid`)
 
 // The restaurant's iPad code. Shown to the owner, typed once on each iPad.

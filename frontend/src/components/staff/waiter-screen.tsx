@@ -84,6 +84,9 @@ function TableScreen({ tableNo, onDone }: { tableNo: number; onDone: () => void 
   const [cart, setCart] = React.useState<Record<string, number>>({})
   const [category, setCategory] = React.useState<string | null>(null)
   const [billTotal, setBillTotal] = React.useState<number | null>(null)
+  const [billing, setBilling] = React.useState(false)
+  const [customerName, setCustomerName] = React.useState("")
+  const [customerPhone, setCustomerPhone] = React.useState("")
 
   const here: TableOrder[] = (orders.data ?? []).filter((o) => o.table_no === tableNo)
   const waiting = here.filter((o) => o.status === "sent")
@@ -107,8 +110,13 @@ function TableScreen({ tableNo, onDone }: { tableNo: number; onDone: () => void 
     onError: (err) => toast.error(errorText(err, "Could not update.")),
   })
   const bill = useMutation({
-    mutationFn: () => requestBill(tableNo),
-    onSuccess: (r) => { setBillTotal(r.total); toast.success("Bill sent to the printer."); refresh() },
+    mutationFn: () => requestBill(tableNo, { customer_name: customerName, customer_phone: customerPhone }),
+    onSuccess: (r) => {
+      setBillTotal(r.total)
+      setBilling(false)
+      toast.success("Bill sent to the counter.")
+      refresh()
+    },
     onError: (err) => toast.error(errorText(err, "Could not print the bill.")),
   })
   const paid = useMutation({
@@ -131,7 +139,8 @@ function TableScreen({ tableNo, onDone }: { tableNo: number; onDone: () => void 
   else if (cartCount > 0) action = { label: `Send ${cartCount} to kitchen · ${money(cartTotal)}`, run: () => send.mutate(), busy: send.isPending }
   else if (hasServable) action = { label: "Mark food served", run: () => served.mutate(waiting[0].order_id), busy: served.isPending }
   else if (billed) action = { label: "Customer paid cash", run: () => paid.mutate(), busy: paid.isPending }
-  else if (canBill) action = { label: "Print bill", run: () => bill.mutate(), busy: bill.isPending, variant: "outline" }
+  else if (canBill && billing) action = { label: "Send bill to counter", run: () => bill.mutate(), busy: bill.isPending }
+  else if (canBill) action = { label: "Bill this table", run: () => setBilling(true), busy: false, variant: "outline" }
 
   return (
     <div className="flex flex-col gap-4 pb-32">
@@ -204,6 +213,34 @@ function TableScreen({ tableNo, onDone }: { tableNo: number; onDone: () => void 
               ))}
             </div>
           </section>
+
+          {billing && (
+            <section className="grid gap-3 rounded-2xl border-2 border-foreground bg-card p-4">
+              <h3 className="text-lg font-semibold">Bill for table {tableNo}</h3>
+              <label className="grid gap-1 text-base">
+                <span>Customer name (optional)</span>
+                <input
+                  value={customerName}
+                  maxLength={60}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="min-h-14 rounded-xl border-2 border-border bg-background px-3 text-lg"
+                />
+              </label>
+              <label className="grid gap-1 text-base">
+                <span>Phone (optional)</span>
+                <input
+                  inputMode="tel"
+                  value={customerPhone}
+                  maxLength={20}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  className="min-h-14 rounded-xl border-2 border-border bg-background px-3 text-lg"
+                />
+              </label>
+              <button type="button" onClick={() => setBilling(false)} className="text-left text-base underline">
+                Not yet
+              </button>
+            </section>
+          )}
 
           {cartLines.length > 0 && (
             <section className="grid gap-2 rounded-2xl border-2 border-border bg-card p-4">
