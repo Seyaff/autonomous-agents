@@ -293,8 +293,8 @@ def _slip_lines(order: Dict[str, Any], kind: str) -> List[str]:
     return head + ["-" * 32] + body + ["-" * 32, f"TOTAL  {_order_total(order):,.0f}"]
 
 
-async def _queue_print(db, tenant_id: str, kind: str, ref: str, lines: List[str]) -> None:
-    await db[PRINT_JOBS].insert_one({
+async def _queue_print(db, tenant_id: str, kind: str, ref: str, lines: List[str], receipt: Optional[Dict[str, Any]] = None) -> None:
+    job = {
         "job_id": f"job_{uuid.uuid4().hex[:12]}",
         "tenant_id": tenant_id,
         "kind": kind,
@@ -302,7 +302,10 @@ async def _queue_print(db, tenant_id: str, kind: str, ref: str, lines: List[str]
         "lines": lines,
         "status": "queued",
         "created_at": datetime.now(timezone.utc),
-    })
+    }
+    if receipt is not None:
+        job["receipt"] = receipt
+    await db[PRINT_JOBS].insert_one(job)
 
 
 async def send_order(db, tenant_id: str, staff: Dict[str, Any], table_no: int, lines: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -377,8 +380,15 @@ async def mark_served(db, tenant_id: str, staff: Dict[str, Any], order_id: str) 
     return {"order_id": order_id, "status": "served"}
 
 
-async def request_bill(db, tenant_id: str, staff: Dict[str, Any], table_no: int) -> Dict[str, Any]:
+async def request_bill(db, tenant_id: str, staff: Dict[str, Any], table_no: int,
+                       customer_name: Optional[str] = None, customer_phone: Optional[str] = None) -> Dict[str, Any]:
     _require_role(staff, "waiter")
+    customer_name = (customer_name or "").strip() or None
+    customer_phone = (customer_phone or "").strip() or None
+    if customer_name and len(customer_name) > 60:
+        raise StaffError("The customer's name is too long.")
+    if customer_phone and not re.fullmatch(r"\+?[0-9 \-]{7,20}", customer_phone):
+        raise StaffError("Check the phone number.")
     orders = await db[TABLE_ORDERS].find(
         {"tenant_id": tenant_id, "table_no": table_no, "status": {"$in": ["sent", "served"]}}, {"_id": 0}
     ).to_list(length=200)
@@ -395,12 +405,38 @@ async def request_bill(db, tenant_id: str, staff: Dict[str, Any], table_no: int)
             row = totals.setdefault(i["name"], {"name": i["name"], "qty": 0, "price": i["price"]})
             row["qty"] += i["qty"]
     grand = sum(float(r["price"]) * r["qty"] for r in totals.values())
-    lines = [f"BILL  Table {table_no}", "-" * 32]
-    lines += [f"{r['qty']} x {r['name']}  {float(r['price']) * r['qty']:,.0f}" for r in totals.values()]
-    lines += ["-" * 32, f"TOTAL  {grand:,.0f}", "Cash"]
+    tenant = await db.tenants.find_one({"tenant_id": tenant_id}) or {}
+    receipt = {
+        "restaurant": tenant.get("business_name") or "",
+        "table_no": table_no,
+        "customer_name": customer_name,
+        "customer_phone": customer_phone,
+        "waiter": staff["name"],
+        "items": [{"qty": r["qty"], "name": r["name"], "amount": float(r["price"]) * r["qty"]} for r in totals.values()],
+        "total": grand,
+        "payment": "Cash",
+        "printed_at": now.isoformat(),
+    }
     ref = f"table-{table_no}-{now.strftime('%H%M%S')}"
-    await _queue_print(db, tenant_id, "bill", ref, lines)
+    await _queue_print(db, tenant_id, "bill", ref, [], receipt=receipt)
     return {"table_no": table_no, "total": grand, "order_ids": [o["order_id"] for o in orders]}
+
+
+async def list_print_jobs(db, tenant_id: str, kind: str = "bill") -> List[Dict[str, Any]]:
+    rows = await db[PRINT_JOBS].find(
+        {"tenant_id": tenant_id, "kind": kind, "status": "queued"}, {"_id": 0}
+    ).to_list(length=100)
+    return rows
+
+
+async def mark_printed(db, tenant_id: str, job_id: str) -> Dict[str, Any]:
+    result = await db[PRINT_JOBS].update_one(
+        {"tenant_id": tenant_id, "job_id": job_id, "status": "queued"},
+        {"$set": {"status": "printed", "printed_at": datetime.now(timezone.utc)}},
+    )
+    if result.matched_count == 0:
+        raise StaffError("That bill was already printed or isn't there.")
+    return {"job_id": job_id, "status": "printed"}
 
 
 async def mark_paid_cash(db, tenant_id: str, staff: Dict[str, Any], table_no: int) -> Dict[str, Any]:

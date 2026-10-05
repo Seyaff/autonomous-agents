@@ -312,10 +312,29 @@ async def staff_served(order_id: str, staff: dict = Depends(staff_with("waiter")
         raise _fail(e)
 
 
+class BillBody(BaseModel):
+    customer_name: Optional[str] = Field(default=None, max_length=60)
+    customer_phone: Optional[str] = Field(default=None, max_length=20)
+
+
 @staff_routes.post("/tables/{table_no}/bill")
-async def staff_bill(table_no: int, staff: dict = Depends(staff_with("waiter")), db=Depends(get_database)):
+async def staff_bill(table_no: int, payload: BillBody = BillBody(), staff: dict = Depends(staff_with("waiter")), db=Depends(get_database)):
     try:
-        return await svc.request_bill(db, _tenant_of(staff), staff, table_no)
+        return await svc.request_bill(db, _tenant_of(staff), staff, table_no, payload.customer_name, payload.customer_phone)
+    except StaffError as e:
+        raise _fail(e)
+
+
+@staff_routes.get("/print-jobs")
+async def staff_print_jobs(staff: dict = Depends(staff_with("reception")), db=Depends(get_database)):
+    """Bills waiting for the counter's printer."""
+    return {"jobs": await svc.list_print_jobs(db, _tenant_of(staff))}
+
+
+@staff_routes.post("/print-jobs/{job_id}/printed")
+async def staff_job_printed(job_id: str, staff: dict = Depends(staff_with("reception")), db=Depends(get_database)):
+    try:
+        return await svc.mark_printed(db, _tenant_of(staff), job_id)
     except StaffError as e:
         raise _fail(e)
 

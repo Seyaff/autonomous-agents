@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
 
+import { CounterBills } from "@/components/staff/counter-bills"
 import { LinkScreen } from "@/components/staff/link-screen"
 import { staffOpenOrders, type TableOrder } from "@/services/staff/staff.service"
 
@@ -44,6 +45,8 @@ export function CounterBoard({ restaurant }: { restaurant: string }) {
         <h1 className="text-2xl font-semibold">Counter</h1>
         <span className="text-base text-muted-foreground">{tables.length} tables open</span>
       </header>
+
+      <CounterBills />
 
       {orders.isPending && <p className="text-base">Loading…</p>}
       {orders.data && tables.length === 0 && <p className="text-base text-muted-foreground">No open tables.</p>}
