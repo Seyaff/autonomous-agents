@@ -7,7 +7,7 @@ then tells the owner what changed.
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
@@ -204,3 +204,105 @@ async def run_owner_turn(db, tenant_id: str, user_id: Any, message: str, history
 
     reply = _last_reply(result.get("messages", [])) or "Done."
     return {"reply": reply, "changes": applied}
+
+
+# ---------------------------------------------------------------------------
+# The chat page: saved conversation, streamed replies.
+# ---------------------------------------------------------------------------
+TRANSCRIPT = "assistant_messages"
+HISTORY_TURNS = 20
+APOLOGY = "Sorry, I couldn't do that just now. Please try again in a moment."
+
+
+async def load_transcript(db, tenant_id: str, user_id: Any, limit: int = 50) -> List[Dict[str, Any]]:
+    """The saved conversation for this owner, oldest first."""
+    rows = await db[TRANSCRIPT].find(
+        {"tenant_id": tenant_id, "user_id": user_id},
+        {"_id": 0, "role": 1, "content": 1, "changes": 1, "at": 1},
+    ).sort([("at", -1)]).to_list(length=limit)
+    rows.reverse()
+    return rows
+
+
+async def save_turn(db, tenant_id: str, user_id: Any, role: str, content: str, changes: Optional[List[Dict[str, Any]]] = None) -> None:
+    await db[TRANSCRIPT].insert_one({
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+        "role": role,
+        "content": content,
+        "changes": changes or [],
+        "at": datetime.now(timezone.utc),
+    })
+
+
+def _text_of(chunk: Any) -> str:
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    return "".join(part.get("text", "") for part in content if isinstance(part, dict))
+
+
+async def stream_owner_turn(db, tenant_id: str, user_id: Any, message: str):
+    """Runs one turn and yields events as they happen: text tokens, tool steps, saved changes, then done.
+    Each event is a dict with a "type". The turn and its reply are saved when it finishes."""
+    tenant = await db.tenants.find_one({"tenant_id": tenant_id}) or {}
+    history = await load_transcript(db, tenant_id, user_id, limit=HISTORY_TURNS)
+    prior = [{"role": r["role"], "content": r["content"]} for r in history]
+    await save_turn(db, tenant_id, user_id, "owner", message)
+
+    applied: List[Dict[str, Any]] = []
+    tools = _make_tools(db, tenant_id, user_id, applied)
+    messages = _build_messages(tenant, prior, message)
+    providers = [settings.LLM_PROVIDER.lower()]
+    fallback = (settings.LLM_FALLBACK_PROVIDER or "").lower()
+    if fallback and fallback != providers[0]:
+        providers.append(fallback)
+
+    reply_parts: List[str] = []
+    sent = 0
+    failed = False
+    for index, provider in enumerate(providers):
+        started = False
+        try:
+            async for event in _agent(provider, tools).astream_events({"messages": messages}, version="v2"):
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    text = _text_of(event["data"]["chunk"])
+                    if text:
+                        started = True
+                        reply_parts.append(text)
+                        yield {"type": "token", "text": text}
+                elif kind == "on_tool_start":
+                    started = True
+                    yield {"type": "tool", "name": event["name"]}
+                while sent < len(applied):
+                    yield {"type": "change", "change": applied[sent]}
+                    sent += 1
+            break
+        except Exception as e:
+            can_retry = not started and index + 1 < len(providers) and is_rate_limit(e)
+            if can_retry:
+                logger.warning(f"[owner-assistant] {provider} is rate-limited; retrying this turn on {providers[index + 1]}")
+                continue
+            logger.exception(f"[owner-assistant] turn failed for {tenant_id}: {e}")
+            failed = True
+            break
+
+    while sent < len(applied):
+        yield {"type": "change", "change": applied[sent]}
+        sent += 1
+    if failed:
+        reply_parts = [APOLOGY]
+        yield {"type": "error", "message": APOLOGY}
+    reply = "".join(reply_parts).strip() or "Done."
+    await save_turn(db, tenant_id, user_id, "assistant", reply, changes=applied)
+    yield {"type": "done", "reply": reply}
+
+
+def _build_messages(tenant: Dict[str, Any], prior: List[Dict[str, str]], message: str) -> List[BaseMessage]:
+    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.format(business=tenant.get("business_name") or "the restaurant"))]
+    for turn in prior:
+        cls = HumanMessage if turn["role"] == "owner" else AIMessage
+        messages.append(cls(content=turn["content"]))
+    messages.append(HumanMessage(content=message))
+    return messages
