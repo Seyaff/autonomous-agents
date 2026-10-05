@@ -5,10 +5,14 @@ use their own sign-in on the iPad or the shared screens, with a token separate f
 
 from typing import List, Optional
 
+from datetime import datetime, timedelta, timezone
+
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from core.database import get_database
+from core.settings import settings
 from middlewares.auth_middleware import require_owner
 from services import staff as svc
 from services.staff import SHIFT_HOURS, StaffError
@@ -20,6 +24,28 @@ owner_staff_routes = APIRouter(prefix="/tenant/current", tags=["Staff"])
 staff_routes = APIRouter(prefix="/staff", tags=["Staff"])
 
 STAFF_COOKIE = "staff_token"
+# A linked iPad keeps a device cookie for a year. It names the one restaurant the iPad belongs to.
+DEVICE_COOKIE = "staff_device"
+DEVICE_TYPE = "staff_device"
+DEVICE_DAYS = 365
+# A plain marker the page can read, so the owner dashboard can send a linked iPad back to its staff screen.
+DEVICE_MARK = "siyaf_ipad"
+
+
+def _device_tenant(request: Request):
+    token = request.cookies.get(DEVICE_COOKIE)
+    if not token:
+        return None
+    try:
+        claims = jwt.decode(token, key=settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except jwt.PyJWTError:
+        return None
+    return claims.get("tid") if claims.get("type") == DEVICE_TYPE else None
+
+
+def _require_linked(request: Request, tenant_id: str) -> None:
+    if _device_tenant(request) != tenant_id:
+        raise HTTPException(status_code=403, detail="This iPad isn't linked to this restaurant. Enter the restaurant code.")
 
 
 def _fail(e: StaffError):
@@ -119,6 +145,16 @@ async def owner_remove(staff_id: str, db=Depends(get_database), current_user: di
     return {"status": "removed"}
 
 
+@owner_staff_routes.get("/staff-code")
+async def owner_get_staff_code(db=Depends(get_database), current_user: dict = Depends(require_owner)):
+    return {"code": await svc.get_access_code(db, _owner_tenant(current_user))}
+
+
+@owner_staff_routes.post("/staff-code/rotate")
+async def owner_rotate_staff_code(db=Depends(get_database), current_user: dict = Depends(require_owner)):
+    return {"code": await svc.rotate_access_code(db, _owner_tenant(current_user))}
+
+
 @owner_staff_routes.put("/dine-tables/count")
 async def owner_set_tables(payload: TableCountBody, db=Depends(get_database), current_user: dict = Depends(require_owner)):
     try:
@@ -130,6 +166,11 @@ async def owner_set_tables(payload: TableCountBody, db=Depends(get_database), cu
 # ---------------------------------------------------------------------------
 # Staff sign-in
 # ---------------------------------------------------------------------------
+class LinkBody(BaseModel):
+    restaurant: str = Field(min_length=1, max_length=80)
+    code: str = Field(min_length=6, max_length=6)
+
+
 class SignInBody(BaseModel):
     restaurant: str = Field(min_length=1, max_length=80)
     staff_id: str
@@ -137,16 +178,37 @@ class SignInBody(BaseModel):
     device: Optional[str] = Field(default="iPad", max_length=40)
 
 
+@staff_routes.post("/link")
+async def staff_link(payload: LinkBody, response: Response, db=Depends(get_database)):
+    """Links this iPad to one restaurant, using the code the owner shows on the Staff page."""
+    tenant_id = await _tenant_id_for(db, payload.restaurant)
+    tenant = await db.tenants.find_one({"tenant_id": tenant_id}, {"staff_access_code": 1, "tenant_slug": 1}) or {}
+    if not svc.check_access_code(tenant.get("staff_access_code"), payload.code):
+        raise HTTPException(status_code=403, detail="That code isn't right. Ask the owner for the code on the Staff page.")
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {"tid": tenant_id, "type": DEVICE_TYPE, "iat": now, "exp": now + timedelta(days=DEVICE_DAYS)},
+        key=settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    max_age = DEVICE_DAYS * 86400
+    response.set_cookie(DEVICE_COOKIE, token, max_age=max_age, httponly=True, secure=True, samesite="lax", path="/")
+    response.set_cookie(DEVICE_MARK, tenant.get("tenant_slug") or payload.restaurant, max_age=max_age, secure=True, samesite="lax", path="/")
+    return {"linked": True}
+
+
 @staff_routes.get("/roster")
-async def staff_roster(restaurant: str, db=Depends(get_database)):
-    """Names for the sign-in list, with role and lock state. No PINs."""
+async def staff_roster(restaurant: str, request: Request, db=Depends(get_database)):
+    """Names for the sign-in list, with role and lock state. No PINs. Only on an iPad linked to this restaurant."""
     tenant_id = await _tenant_id_for(db, restaurant)
+    _require_linked(request, tenant_id)
     return {"waiters": await svc.roster(db, tenant_id)}
 
 
 @staff_routes.post("/sign-in")
-async def staff_sign_in(payload: SignInBody, response: Response, db=Depends(get_database)):
+async def staff_sign_in(payload: SignInBody, request: Request, response: Response, db=Depends(get_database)):
     tenant_id = await _tenant_id_for(db, payload.restaurant)
+    _require_linked(request, tenant_id)
     try:
         result = await svc.sign_in(db, tenant_id, payload.staff_id, payload.pin, payload.device or "iPad")
     except StaffError as e:
@@ -155,6 +217,9 @@ async def staff_sign_in(payload: SignInBody, response: Response, db=Depends(get_
         STAFF_COOKIE, result["token"], max_age=SHIFT_HOURS * 3600,
         httponly=True, secure=True, samesite="lax", path="/",
     )
+    # A waiter's iPad must not also hold an owner's sign-in, or the waiter could open the dashboard.
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/api/auth")
     return {"staff": result["staff"]}
 
 

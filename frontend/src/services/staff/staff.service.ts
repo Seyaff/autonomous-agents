@@ -77,3 +77,10 @@ export const kitchenStep = async (order_id: string, status: "cooking" | "ready")
 export const requestBill = async (table_no: number) =>
   (await API.post<{ total: number }>(`/staff/tables/${table_no}/bill`)).data
 export const markPaidCash = async (table_no: number) => API.post(`/staff/tables/${table_no}/paid`)
+
+// The restaurant's iPad code. Shown to the owner, typed once on each iPad.
+export const getStaffCode = async () => (await API.get<{ code: string }>("/tenant/current/staff-code")).data.code
+export const rotateStaffCode = async () =>
+  (await API.post<{ code: string }>("/tenant/current/staff-code/rotate")).data.code
+export const linkIpad = async (restaurant: string, code: string) =>
+  API.post("/staff/link", { restaurant, code })

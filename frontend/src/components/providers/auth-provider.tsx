@@ -51,6 +51,13 @@ const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/terms", "/pricing"
 // Public sections with sub-pages, such as /guides/<slug>. Matched by prefix.
 const PUBLIC_PREFIXES = ["/guides/", "/features/", "/compare/"]
 const STAFF_PREFIX = "/staff/"
+
+// The restaurant's name on a linked iPad. The server sets it next to the iPad's link.
+function readIpadSlug(): string | null {
+    if (typeof document === "undefined") return null
+    const match = document.cookie.match(/(?:^|;\s*)siyaf_ipad=([^;]+)/)
+    return match ? decodeURIComponent(match[1]) : null
+}
 const FOUNDER_PREFIX = "/founder"
 const SETUP_PREFIX = "/setup"
 
@@ -97,6 +104,13 @@ export default function AuthProvider({
 
     // Handle redirects based on auth/role/setup state
     useEffect(() => {
+        // A linked restaurant iPad is locked to its staff screen. Nothing else on it is reachable.
+        const ipadSlug = readIpadSlug()
+        if (ipadSlug && !pathname.startsWith(STAFF_PREFIX)) {
+            router.replace(`${STAFF_PREFIX}${ipadSlug}`)
+            return
+        }
+
         if (isLoading) return
 
         // Staff screens run on their own PIN sign-in, so the owner's session never moves them.

@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   addStaff,
+  getStaffCode,
   listStaff,
+  rotateStaffCode,
   removeStaff,
   resetStaffPin,
   setTableCount,
@@ -26,6 +28,16 @@ export default function StaffPage() {
   const queryClient = useQueryClient()
   const data = useQuery({ queryKey: ["owner", "staff"], queryFn: listStaff })
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["owner", "staff"] })
+
+  const staffCode = useQuery({ queryKey: ["owner", "staff-code"], queryFn: getStaffCode })
+  const rotate = useMutation({
+    mutationFn: rotateStaffCode,
+    onSuccess: () => {
+      toast.success("New code set. Old code no longer links an iPad.")
+      queryClient.invalidateQueries({ queryKey: ["owner", "staff-code"] })
+    },
+    onError: (err) => toast.error(errorText(err, "Could not make a new code.")),
+  })
 
   const [name, setName] = React.useState("")
   const [role, setRole] = React.useState<StaffRole>("waiter")
@@ -75,6 +87,17 @@ export default function StaffPage() {
         <h1 className="text-lg font-semibold">Staff and tables</h1>
         <p className="text-sm text-muted-foreground">One waiter, one iPad. You set each PIN and tell the person in person.</p>
       </div>
+
+      <section className="grid gap-3 rounded-xl border border-border bg-card p-4">
+        <h2 className="font-medium">iPad code</h2>
+        <p className="text-sm text-muted-foreground">
+          Each waiter&apos;s iPad asks for this code once. Only iPads with the code can see your staff names.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-mono text-2xl tracking-[0.3em]">{staffCode.data ?? "······"}</span>
+          <Button variant="outline" onClick={() => rotate.mutate()} disabled={rotate.isPending}>New code</Button>
+        </div>
+      </section>
 
       <section className="grid gap-3 rounded-xl border border-border bg-card p-4">
         <h2 className="font-medium">Tables</h2>

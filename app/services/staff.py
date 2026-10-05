@@ -10,7 +10,9 @@ Rules this module enforces:
 - Every slip, ticket and bill is queued as a print job. The print agent comes later.
 """
 
+import hmac
 import re
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -134,6 +136,31 @@ async def remove(db, tenant_id: str, staff_id: str) -> None:
         {"tenant_id": tenant_id, "staff_id": staff_id},
         {"$set": {"removed": True, "session_id": None, "device": None}},
     )
+
+
+def _new_access_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+async def get_access_code(db, tenant_id: str) -> str:
+    """The code an iPad enters once to link itself to this restaurant. Created the first time it's asked for."""
+    tenant = await db.tenants.find_one({"tenant_id": tenant_id}, {"staff_access_code": 1}) or {}
+    if tenant.get("staff_access_code"):
+        return tenant["staff_access_code"]
+    code = _new_access_code()
+    await db.tenants.update_one({"tenant_id": tenant_id}, {"$set": {"staff_access_code": code}})
+    return code
+
+
+async def rotate_access_code(db, tenant_id: str) -> str:
+    """A new code. iPads already linked keep their link; the new code is needed for any new iPad."""
+    code = _new_access_code()
+    await db.tenants.update_one({"tenant_id": tenant_id}, {"$set": {"staff_access_code": code}})
+    return code
+
+
+def check_access_code(stored, given: str) -> bool:
+    return bool(stored) and hmac.compare_digest(str(stored), (given or "").strip())
 
 
 async def set_table_count(db, tenant_id: str, count: int) -> int:
