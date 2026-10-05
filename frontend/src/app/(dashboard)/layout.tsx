@@ -29,7 +29,7 @@ export default function DashboardLayout({
         <div className="flex h-svh min-h-0 flex-1 flex-col overflow-hidden">
           <DashboardTopbar />
           <BillingBanner />
-          <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
         </div>
       </SidebarInset>
     </SidebarProvider>
