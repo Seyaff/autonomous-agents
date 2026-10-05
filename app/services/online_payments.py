@@ -68,6 +68,8 @@ class JazzCashProvider:
             "reference": fields.get("pp_TxnRefNo", ""),
             "amount_pkr": int(fields.get("pp_Amount", "0")) // 100,
             "status": "paid" if fields.get("pp_ResponseCode") == jazzcash.SUCCESS_CODE else "failed",
+            "response_code": fields.get("pp_ResponseCode", ""),
+            "response_message": fields.get("pp_ResponseMessage", ""),
         }
 
 
@@ -227,6 +229,7 @@ async def handle_payment_webhook(db, provider_name: str, headers: Dict[str, str]
         return "unknown provider"
     event = provider.verify_webhook(headers, body)  # raises if the signature is wrong
     if event.get("status") != "paid":
+        logger.warning(f"[payments] JazzCash payment {event.get('reference')} not successful: code {event.get('response_code')}, {event.get('response_message')}")
         return "not a successful payment"
 
     order = await db["orders"].find_one({"payment_reference": event["reference"]})
