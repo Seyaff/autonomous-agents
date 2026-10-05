@@ -25,7 +25,7 @@ export default function DashboardLayout({
     <SidebarProvider>
       <meta name="robots" content="noindex, nofollow" />
       <AppSidebar />
-      <SidebarInset className="min-h-0 gap-0 p-0 overflow-hidden">
+      <SidebarInset className="h-svh max-h-svh min-h-0 gap-0 p-0 overflow-hidden">
         <div className="flex h-svh min-h-0 flex-1 flex-col overflow-hidden">
           <DashboardTopbar />
           <BillingBanner />
