@@ -143,7 +143,7 @@ def _mail(to: str, subject: str, title: str, lines: list, dedupe_key: str, butto
 def welcome(to: str, name: str, user_id: str) -> None:
     _mail(to, "Welcome to Siyaf",
           "Welcome to Siyaf", [f"Hi {name}, your account is ready.",
-                               "Next, set up your restaurant. Your 14-day free trial starts now."],
+                               "Next, set up your restaurant. Your 3-day free trial starts now."],
           f"welcome:{user_id}", "Set up my restaurant", "/setup")
 
 
@@ -252,7 +252,7 @@ def whatsapp_disconnected(to: str, tenant: Optional[Dict[str, Any]], tenant_id: 
 def founder_new_restaurant(founder_email: str, tenant: Dict[str, Any], owner: str) -> None:
     _mail(founder_email, f"New restaurant: {_tenant_name(tenant)}",
           "New restaurant signed up", [f"{_tenant_name(tenant)} was created by {owner}.",
-                                       "They're on a 14-day trial."],
+                                       "They're on a 3-day trial."],
           f"founder_new_restaurant:{tenant['tenant_id']}", "Open operations", "/founder")
 
 

@@ -8,7 +8,7 @@ import { absoluteUrl, SITE_NAME } from "@/lib/site"
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Siyaf plans from Rs 2,999 a month, with a 14-day free trial. What an AI chat is, and how WhatsApp fees work.",
+  description: "Siyaf plans from Rs 2,999 a month, with a 3-day free trial. What an AI chat is, and how WhatsApp fees work.",
   alternates: { canonical: "/pricing" },
 }
 

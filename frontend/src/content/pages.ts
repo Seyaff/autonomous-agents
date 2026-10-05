@@ -8,7 +8,7 @@ export const PLANS = [
 ] as const
 
 export const EXTRA_CHAT_PKR = 3
-export const TRIAL_DAYS = 14
+export const TRIAL_DAYS = 3
 export const TRIAL_CHAT_CAP = 100
 
 // A "chat" is one customer conversation the agent replied in during the month. A busy chat counts once.

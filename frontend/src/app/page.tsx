@@ -75,7 +75,7 @@ export default function HomePage() {
 
       <section className="space-y-2 text-sm text-muted-foreground">
         <p>
-          Siyaf is for restaurant owners. Plans start at Rs 2,999 a month after a 14-day free trial. Meta bills
+          Siyaf is for restaurant owners. Plans start at Rs 2,999 a month after a 3-day free trial. Meta bills
           WhatsApp message fees to your business directly.
         </p>
       </section>
