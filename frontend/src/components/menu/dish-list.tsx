@@ -31,7 +31,7 @@ function toPayload(f: Fields) {
   }
 }
 
-/** The dishes the agent reads from. The owner can fix names and prices, hide a dish, or mark it sold out today. */
+/** The items the agent sells from. The owner can fix names and prices, hide an item, or mark it unavailable today. */
 export function DishList() {
   const menu = useMenuItems()
   const queryClient = useQueryClient()
@@ -44,17 +44,17 @@ export function DishList() {
     mutationFn: async ({ name, on }: { name: string; on: boolean }) =>
       API.post("/tenant/current/menu-items/sold-out", { name, sold_out: on }),
     onSuccess: (_, { on, name }) => {
-      toast(on ? `${name} is sold out for today.` : `${name} is back on the menu.`)
+      toast(on ? `${name} is unavailable today.` : `${name} is available again.`)
       refresh()
     },
-    onError: (err) => toast.error(errorText(err, "Could not update that dish.")),
+    onError: (err) => toast.error(errorText(err, "Could not update that item.")),
   })
 
   const patch = useMutation({
     mutationFn: async ({ id, body }: { id: string; body: Record<string, unknown> }) =>
       API.patch(`/tenant/current/menu-items/${id}`, body),
     onSuccess: () => refresh(),
-    onError: (err) => toast.error(errorText(err, "Could not save that dish.")),
+    onError: (err) => toast.error(errorText(err, "Could not save that item.")),
   })
 
   const save = useMutation({
@@ -64,21 +64,21 @@ export function DishList() {
       if (editing) return API.patch(`/tenant/current/menu-items/${editing.id}`, body)
     },
     onSuccess: () => {
-      toast("Dish saved. The agent uses the new details now.")
+      toast("Item saved. The agent uses the new details now.")
       setEditing(null)
       refresh()
     },
-    onError: (err) => toast.error(errorText(err, "Could not save that dish.")),
+    onError: (err) => toast.error(errorText(err, "Could not save that item.")),
   })
 
   const remove = useMutation({
     mutationFn: async (id: string) => API.delete(`/tenant/current/menu-items/${id}`),
     onSuccess: () => {
-      toast("Dish removed.")
+      toast("Item removed.")
       setEditing(null)
       refresh()
     },
-    onError: (err) => toast.error(errorText(err, "Could not remove that dish.")),
+    onError: (err) => toast.error(errorText(err, "Could not remove that item.")),
   })
 
   function openEdit(item: MenuItem) {
@@ -110,13 +110,13 @@ export function DishList() {
   return (
     <section className="border-b border-border px-4 py-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-medium">Dishes</h2>
-        <Button size="sm" variant="outline" onClick={openNew}>Add a dish</Button>
+        <h2 className="text-sm font-medium">Products and services</h2>
+        <Button size="sm" variant="outline" onClick={openNew}>Add an item</Button>
       </div>
 
       {items.length === 0 ? (
         <p className="rounded-md border border-dashed p-3 font-mono text-xs text-muted-foreground">
-          No dishes yet. Upload a menu above, or add dishes one by one.
+          Nothing here yet. Upload a price list or menu above, or add items one by one.
         </p>
       ) : (
         <div className="space-y-4">
@@ -152,7 +152,7 @@ export function DishList() {
                         disabled={soldOut.isPending}
                         onClick={() => soldOut.mutate({ name: item.name, on: !item.sold_out_today })}
                       >
-                        {item.sold_out_today ? "Back on the menu" : "Sold out today"}
+                        {item.sold_out_today ? "Available again" : "Unavailable today"}
                       </Button>
                     </div>
                   </li>
@@ -166,8 +166,8 @@ export function DishList() {
       <Dialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
-            <DialogTitle className="font-display">{editing === "new" ? "Add a dish" : "Edit dish"}</DialogTitle>
-            <DialogDescription>Changes go straight to the agent's dish list.</DialogDescription>
+            <DialogTitle className="font-display">{editing === "new" ? "Add an item" : "Edit item"}</DialogTitle>
+            <DialogDescription>Changes go straight to the agent&apos;s catalog.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -177,7 +177,7 @@ export function DishList() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="dish-category">Category</Label>
-                <Input id="dish-category" placeholder="e.g. Mains" value={fields.category} onChange={(e) => setFields({ ...fields, category: e.target.value })} />
+                <Input id="dish-category" placeholder="e.g. Hair, Mains, Phones" value={fields.category} onChange={(e) => setFields({ ...fields, category: e.target.value })} />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="dish-price">Price</Label>
@@ -192,11 +192,11 @@ export function DishList() {
           <DialogFooter className="sm:justify-between">
             {editing && editing !== "new" ? (
               <Button variant="ghost" className="text-need" disabled={remove.isPending} onClick={() => remove.mutate(editing.id)}>
-                Remove dish
+                Remove item
               </Button>
             ) : <span />}
             <Button disabled={!canSave || save.isPending} onClick={() => save.mutate()}>
-              {save.isPending ? "Saving…" : "Save dish"}
+              {save.isPending ? "Saving…" : "Save item"}
             </Button>
           </DialogFooter>
         </DialogContent>

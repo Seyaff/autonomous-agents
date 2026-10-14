@@ -194,14 +194,14 @@ async def search_tenant_knowledge(query: str, tenant_id: str, top_k: int = 4) ->
     and formats verified facts for the AI Agent.
     """
     if not tenant_id:
-        return "Notice: No restaurant tenant configured. Knowledge base unavailable."
+        return "Notice: No business tenant configured. Knowledge base unavailable."
 
     try:
         vector_store = get_pinecone_vectorstore(tenant_id)
         results = await vector_store.asimilarity_search_with_score(query=query, k=top_k)
 
         if not results:
-            return "No matching details found in the restaurant's menu, pricing sheets, or store policies."
+            return "No matching details found in the business's uploaded documents."
 
         formatted_snippets = []
         for doc, score in results:

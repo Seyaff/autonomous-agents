@@ -50,7 +50,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       badge: unreadTotal > 0 ? String(unreadTotal) : undefined,
     },
     { title: "Orders", url: "/dashboard/orders", icon: <ReceiptTextIcon /> },
-    { title: "Menu knowledge", url: "/dashboard/menu", icon: <BookOpenIcon /> },
+    { title: "Catalog", url: "/dashboard/menu", icon: <BookOpenIcon /> },
     { title: "Customers", url: "/dashboard/customers", icon: <UsersIcon /> },
     { title: "Reports", url: "/dashboard/reports", icon: <BarChart3Icon /> },
     { title: "Billing", url: "/dashboard/billing", icon: <CreditCardIcon /> },

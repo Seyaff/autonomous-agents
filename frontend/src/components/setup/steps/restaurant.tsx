@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/components/providers/auth-provider"
 import { useSetupState } from "@/hooks/setup/use-setup-state"
 import { useSetupStep } from "@/hooks/setup/use-setup-step"
@@ -22,10 +23,13 @@ import {
 import { COUNTRY_LOCALE, StepError, errorDetail } from "@/components/setup/steps/common"
 
 const ORDER_TYPES: { value: OrderType; label: string; hint: string }[] = [
-  { value: "delivery", label: "Delivery", hint: "Riders bring it to the door" },
-  { value: "takeaway", label: "Takeaway", hint: "Customer picks it up" },
-  { value: "dine_in", label: "Dine-in", hint: "Table orders" },
+  { value: "delivery", label: "Delivery", hint: "You send it to them" },
+  { value: "takeaway", label: "Pickup", hint: "They collect it" },
+  { value: "dine_in", label: "At your place", hint: "Served or done on site" },
+  { value: "booking", label: "Bookings", hint: "Appointments at a set time" },
 ]
+
+const MIN_DESCRIPTION = 20
 
 export function RestaurantStep() {
   const router = useRouter()
@@ -36,6 +40,7 @@ export function RestaurantStep() {
 
   const existing = setup.tenant
   const [name, setName] = React.useState<string | null>(null)
+  const [description, setDescription] = React.useState<string | null>(null)
   const [country, setCountry] = React.useState<CountryCode>("PK")
   const [city, setCity] = React.useState("")
   const [orderTypes, setOrderTypes] = React.useState<OrderType[] | null>(null)
@@ -44,9 +49,11 @@ export function RestaurantStep() {
 
   // Coming back to this step after the restaurant exists: show what was saved.
   const shownName = name ?? existing?.business_name ?? ""
+  const shownDescription = description ?? existing?.business_description ?? ""
   const shownTypes: OrderType[] = orderTypes ?? ((existing?.order_types as OrderType[] | undefined) ?? ["delivery", "takeaway"])
   const locale = COUNTRY_LOCALE[country]
-  const valid = shownName.trim().length >= 2 && shownTypes.length > 0
+  const valid =
+    shownName.trim().length >= 2 && shownDescription.trim().length >= MIN_DESCRIPTION && shownTypes.length > 0
 
   function toggleType(type: OrderType, on: boolean) {
     setOrderTypes(on ? [...shownTypes, type] : shownTypes.filter((t) => t !== type))
@@ -60,6 +67,7 @@ export function RestaurantStep() {
       if (!activeTenantId) {
         await createRestaurant({
           business_name: shownName.trim(),
+          business_description: shownDescription.trim(),
           country,
           city: city.trim() || undefined,
           order_types: shownTypes,
@@ -67,12 +75,16 @@ export function RestaurantStep() {
         // The owner now has a restaurant. Reload the user so the gate sees it.
         await queryClient.invalidateQueries({ queryKey: ["me"] })
       } else {
-        await updateRestaurant({ business_name: shownName.trim(), order_types: shownTypes })
+        await updateRestaurant({
+          business_name: shownName.trim(),
+          business_description: shownDescription.trim(),
+          order_types: shownTypes,
+        })
         await complete.mutateAsync({ step: "restaurant", action: "complete" })
       }
       router.push("/setup/menu")
     } catch (err) {
-      setError(errorDetail(err, "Could not save the restaurant. Try again."))
+      setError(errorDetail(err, "Could not save your business. Try again."))
     } finally {
       setSaving(false)
     }
@@ -81,20 +93,38 @@ export function RestaurantStep() {
   return (
     <>
       <div className="space-y-1.5">
-        <DialogTitle className="font-heading text-lg">Restaurant details</DialogTitle>
-        <DialogDescription>The name your customers see on WhatsApp, and where you are.</DialogDescription>
+        <DialogTitle className="font-heading text-lg">Your business</DialogTitle>
+        <DialogDescription>Tell the agent what you do. It works out the rest from this and your catalog.</DialogDescription>
       </div>
 
       <div className="grid gap-4">
         <div className="space-y-1.5">
-          <Label htmlFor="r-name">Restaurant name</Label>
+          <Label htmlFor="r-name">Business name</Label>
           <Input
             id="r-name"
             value={shownName}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Da Pakhtun Dera"
+            placeholder="Glow Studio"
             disabled={saving}
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="r-description">What does your business do?</Label>
+          <Textarea
+            id="r-description"
+            rows={4}
+            maxLength={2000}
+            value={shownDescription}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="A women's salon in DHA Lahore. Haircuts, colour and facials. Appointments only, no walk-ins on Sundays."
+            disabled={saving}
+          />
+          <p className="text-xs text-muted-foreground">
+            {shownDescription.trim().length < MIN_DESCRIPTION
+              ? "A sentence or two is enough to start. You can add more in Settings."
+              : "Brief it like a new employee: what you sell, who you serve, how ordering or booking works."}
+          </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -133,8 +163,8 @@ export function RestaurantStep() {
         </div>
 
         <fieldset className="space-y-2">
-          <legend className="mb-1.5 text-sm font-medium">How do customers order?</legend>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <legend className="mb-1.5 text-sm font-medium">How do customers buy from you?</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
             {ORDER_TYPES.map((type) => {
               const checked = shownTypes.includes(type.value)
               return (
@@ -159,7 +189,7 @@ export function RestaurantStep() {
             })}
           </div>
           {shownTypes.length === 0 && (
-            <p className="text-xs text-destructive">Pick at least one way customers can order.</p>
+            <p className="text-xs text-destructive">Pick at least one way customers buy from you.</p>
           )}
         </fieldset>
       </div>

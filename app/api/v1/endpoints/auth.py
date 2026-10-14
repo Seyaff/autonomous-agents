@@ -473,7 +473,7 @@ async def change_password(
 
 def _owners_only(user: dict) -> None:
     if not two_factor.is_owner(user):
-        raise HTTPException(status_code=403, detail="Two-step sign-in is for restaurant owners.")
+        raise HTTPException(status_code=403, detail="Two-step sign-in is for business owners.")
 
 
 class TwoFactorCode(BaseModel):

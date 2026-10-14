@@ -72,7 +72,7 @@ async def handle_inbound_pdf(
     try:
         await send_whatsapp_message(
             to_phone=sender_phone,
-            text=f"📄 Processing '{filename}'... I am indexing your restaurant menu.",
+            text=f"📄 Processing '{filename}'... I'm adding it to your catalog.",
             token=token,
             phone_number_id=phone_number_id,
         )
@@ -88,7 +88,7 @@ async def handle_inbound_pdf(
         if num_chunks > 0:
             reply = (
                 f"✅ Finished indexing '{filename}' ({num_chunks} chunks). "
-                f"Customers can now query your dishes, deals, and prices!"
+                f"Customers can now ask about what's in it."
             )
         else:
             reply = (
@@ -108,12 +108,12 @@ async def handle_inbound_pdf(
     )
 
 
-PAUSED_NOTICE = "Abhi yeh restaurant messages ka jawab nahi de sakta. Thori dair baad dobara message karein."
+PAUSED_NOTICE = "Abhi hum messages ka jawab nahi de sakte. Thori dair baad dobara message karein."
 PAUSED_NOTICE_EVERY = timedelta(hours=24)
 
 
 async def _send_paused_notice(database, tenant_id: str, customer_phone: str, token, phone_id) -> None:
-    """Tells a customer, at most once a day, that the restaurant isn't taking messages right now."""
+    """Tells a customer, at most once a day, that the business isn't taking messages right now."""
     now = datetime.now(timezone.utc)
     conversation = await database["conversations"].find_one(
         {"tenant_id": tenant_id, "customer_phone": customer_phone}, {"paused_notice_at": 1}
@@ -201,7 +201,7 @@ async def handle_text_turn(
 
         # The inbound message is already saved. Don't let the agent answer if
         # the owner has taken the chat, it's waiting on the owner after an
-        # escalation, or the restaurant has paused the agent globally.
+        # escalation, or the business has paused the agent globally.
         conversation = await database["conversations"].find_one(
             {"tenant_id": tenant_id, "customer_phone": sender_phone}
         )
@@ -214,7 +214,7 @@ async def handle_text_turn(
             )
             return
 
-        # Billing: a paused or canceled restaurant, or a trial that has ended or hit its cap,
+        # Billing: a paused or canceled business, or a trial that has ended or hit its cap,
         # doesn't get agent replies. The message is still saved to the inbox.
         allowed, reason = await agent_allowed(database, tenant)
         if not allowed:
@@ -276,7 +276,7 @@ async def handle_text_turn(
 
 
 async def _report_send_failure(database, tenant_id: str, sender_phone: str, result, what: str) -> None:
-    """A WhatsApp send failed. If the token is the problem, the restaurant is marked disconnected too."""
+    """A WhatsApp send failed. If the token is the problem, the business is marked disconnected too."""
     if result.auth_error:
         await database["tenants"].update_one(
             {"tenant_id": tenant_id},
@@ -388,14 +388,14 @@ async def receive_meta_webhook(
         return {"status": "success"}  # always ACK Meta
 
     # ---- 2. Resolve tenant ----
-    # Route only by the number the message was sent to. Never guess a restaurant:
+    # Route only by the number the message was sent to. Never guess a business:
     # answering as the wrong one would put a customer's message in another owner's inbox.
     tenant = None
     if inbound_phone_id:
         tenant = await database["tenants"].find_one({"phone_number_id": inbound_phone_id})
     if not tenant:
         logger.warning(
-            f"[{request_id}] No restaurant is connected to phone_number_id={inbound_phone_id} "
+            f"[{request_id}] No business is connected to phone_number_id={inbound_phone_id} "
             f"(display_number={display_number}). Message not answered."
         )
         return {"status": "no_tenant_matched"}

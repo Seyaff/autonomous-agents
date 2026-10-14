@@ -32,10 +32,12 @@ SYSTEM_PROMPT = """You are the settings assistant for the owner of {business}. T
 
 Rules:
 - Apply clear requests right away with the tools. Don't ask for confirmation for normal settings.
-- Call get_restaurant_settings when you need current values before you change something.
+- Call get_business_settings when you need current values before you change something.
+- The business description is what the customer agent works from. When the owner tells you something about the business
+  (what it sells, how it works, its policies), offer to add it to the description, and update it with update_business_settings.
 - If a request is unclear (for example, which days a time applies to), ask one short question instead of guessing.
 - Pausing the customer agent stops replies to every customer. Call set_agent_enabled without confirmed first, and only pass confirmed=true after the owner has clearly said yes.
-- Before setting a dish sold out, call list_menu so you use the exact dish name.
+- Before marking an item unavailable, call list_catalog so you use the exact item name.
 - Change only what the owner asked for.
 - After making changes, reply with a short list of what changed, as "old -> new".
 - Reply in the language the owner writes in (English or Roman Urdu).
@@ -46,6 +48,7 @@ def _current_settings(tenant: Dict[str, Any]) -> Dict[str, Any]:
     delivery = tenant.get("delivery_settings") or {}
     return {
         "business_name": tenant.get("business_name"),
+        "business_description": tenant.get("business_description") or "",
         "business_phone": tenant.get("business_phone"),
         "address": tenant.get("address"),
         "currency": tenant.get("currency"),
@@ -63,23 +66,25 @@ def _current_settings(tenant: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _make_tools(db, tenant_id: str, user_id: Any, applied: List[Dict[str, Any]]):
-    """The tools close over this turn's tenant and user, so the model can't touch another restaurant."""
+    """The tools close over this turn's tenant and user, so the model can't touch another business."""
 
     async def _tenant() -> Dict[str, Any]:
         return await db.tenants.find_one({"tenant_id": tenant_id}) or {}
 
     @tool
-    async def get_restaurant_settings() -> dict:
-        """Current settings: name, phone, address, currency, timezone, delivery fee, prep time, minimum order,
+    async def get_business_settings() -> dict:
+        """Current settings: name, description of the business, phone, address, currency, timezone, delivery fee, prep time, minimum order,
         opening hours, delivery areas, payment methods, order types, reply settings, and whether the agent is on."""
         return _current_settings(await _tenant())
 
     @tool
-    async def update_restaurant_settings(changes: dict) -> str:
-        """Change restaurant settings. Pass only the fields to change. Keys: business_name, business_phone, address,
+    async def update_business_settings(changes: dict) -> str:
+        """Change business settings. Pass only the fields to change. Keys: business_name, business_description
+        (what the business does, in plain words; pass the whole new text), business_phone, address,
         currency, timezone, flat_delivery_fee, avg_prep_time_minutes, min_order_amount, operating_hours (all 7 days,
         each {"day": "mon", "open": "12:00", "close": "23:30", "closed": false}), delivery_areas (list of text),
-        payment_methods (cash_on_delivery, card_on_delivery, bank_transfer), order_types (delivery, takeaway, dine_in)."""
+        payment_methods (cash_on_delivery, card_on_delivery, bank_transfer), order_types (delivery, takeaway = pickup,
+        dine_in = at the business's place, booking = appointment at a set time)."""
         unknown = set(changes) - set(TenantUpdatePayload.model_fields)
         if unknown:
             return f"Not saved. Unknown setting: {', '.join(sorted(unknown))}."
@@ -133,30 +138,30 @@ def _make_tools(db, tenant_id: str, user_id: Any, applied: List[Dict[str, Any]])
         return "The agent is on again." if enabled else "The agent is paused for all customers."
 
     @tool
-    async def list_menu(category: str = "") -> str:
-        """The dish list grouped by category, with prices and what's sold out today. Use it to match the owner's
-        words to exact dish names. Pass a category name to narrow it."""
-        return await menu_text(db, await _tenant(), category or None) or "There is no dish list yet."
+    async def list_catalog(category: str = "") -> str:
+        """What the business sells, grouped by category, with prices and what's unavailable today. Use it to match
+        the owner's words to exact item names. Pass a category name to narrow it."""
+        return await menu_text(db, await _tenant(), category or None) or "There is no catalog yet."
 
     @tool
-    async def set_dish_sold_out(name: str, sold_out: bool) -> str:
-        """Mark a dish sold out for today, or back on the menu. Use the exact dish name from list_menu."""
+    async def set_item_unavailable(name: str, sold_out: bool) -> str:
+        """Mark an item unavailable (sold out) for today, or available again. Use the exact item name from list_catalog."""
         now = datetime.now(timezone.utc)
         name = (name or "").strip()
         if not name:
-            return "Not saved. Name the dish."
+            return "Not saved. Name the item."
         tenant = await _tenant()
         match = {"tenant_id": tenant_id, "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}
         update = {"$set": {"sold_out_on": today_for(tenant)}} if sold_out else {"$unset": {"sold_out_on": ""}}
         result = await db[MENU_ITEMS].update_many(match, update)
         if result.matched_count == 0:
-            return f"No dish named {name} on the menu. Check the spelling with list_menu."
+            return f"No item named {name} in the catalog. Check the spelling with list_catalog."
         change = {"field": "menu.sold_out", "before": None, "after": name if sold_out else None}
         await log_changes(db, tenant_id, user_id, "assistant", [change], now)
         applied.append(change)
-        return f"{name} is sold out today." if sold_out else f"{name} is back on the menu."
+        return f"{name} is unavailable today." if sold_out else f"{name} is available again."
 
-    return [get_restaurant_settings, update_restaurant_settings, update_reply_settings, set_agent_enabled, list_menu, set_dish_sold_out]
+    return [get_business_settings, update_business_settings, update_reply_settings, set_agent_enabled, list_catalog, set_item_unavailable]
 
 
 def _agent(provider: str, tools: List[Any]):
@@ -182,7 +187,7 @@ async def run_owner_turn(db, tenant_id: str, user_id: Any, message: str, history
     applied: List[Dict[str, Any]] = []
     tools = _make_tools(db, tenant_id, user_id, applied)
 
-    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.format(business=tenant.get("business_name") or "the restaurant"))]
+    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.format(business=tenant.get("business_name") or "the business"))]
     for turn in history[-20:]:
         cls = HumanMessage if turn["role"] == "owner" else AIMessage
         messages.append(cls(content=turn["content"]))
@@ -300,7 +305,7 @@ async def stream_owner_turn(db, tenant_id: str, user_id: Any, message: str):
 
 
 def _build_messages(tenant: Dict[str, Any], prior: List[Dict[str, str]], message: str) -> List[BaseMessage]:
-    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.format(business=tenant.get("business_name") or "the restaurant"))]
+    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.format(business=tenant.get("business_name") or "the business"))]
     for turn in prior:
         cls = HumanMessage if turn["role"] == "owner" else AIMessage
         messages.append(cls(content=turn["content"]))

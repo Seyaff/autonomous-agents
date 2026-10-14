@@ -23,7 +23,7 @@ export type OrderStatus =
 export const ORDER_STATUS_DISPLAY: Record<OrderStatus, { label: string; tone: ChipTone }> = {
   pending: { label: "New", tone: "new" },
   accepted: { label: "Accepted", tone: "new" },
-  preparing: { label: "In the kitchen", tone: "neutral" },
+  preparing: { label: "In progress", tone: "neutral" },
   out_for_delivery: { label: "On the way", tone: "neutral" },
   delivered: { label: "Delivered", tone: "ok" },
   cancelled: { label: "Cancelled", tone: "need" },

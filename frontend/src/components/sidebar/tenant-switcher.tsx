@@ -59,7 +59,7 @@ export function TenantSwitcher() {
           >
             <Image src="/brand/logo-light-1024.png" alt="" width={32} height={32} className="aspect-square size-8 rounded-md" />
             <div className="grid flex-1 text-left leading-tight">
-              <span className="truncate text-sm font-semibold">Your Restaurant</span>
+              <span className="truncate text-sm font-semibold">Your business</span>
               <span className="truncate text-xs text-muted-foreground">
                 Siyaf Autopilot
               </span>

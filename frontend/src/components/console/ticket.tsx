@@ -9,11 +9,35 @@ import type { OrderStatus } from "@/lib/status"
 
 export type TicketOrder = Order & Partial<Pick<MockOrder, "delivery_fee" | "source" | "eta_minutes">>
 
-const NEXT_ACTION: Partial<Record<OrderStatus, { label: string; next: OrderStatus }>> = {
-  pending: { label: "Send to kitchen →", next: "accepted" },
+type NextActions = Partial<Record<OrderStatus, { label: string; next: OrderStatus }>>
+
+const DELIVERY_ACTIONS: NextActions = {
+  pending: { label: "Accept →", next: "accepted" },
   accepted: { label: "Start preparing →", next: "preparing" },
   preparing: { label: "Out for delivery →", next: "out_for_delivery" },
   out_for_delivery: { label: "Mark delivered →", next: "delivered" },
+}
+
+// Pickup, on-site and booked orders finish without a delivery leg.
+const HANDOVER_ACTIONS: NextActions = {
+  pending: { label: "Accept →", next: "accepted" },
+  accepted: { label: "Start →", next: "preparing" },
+  preparing: { label: "Mark done →", next: "delivered" },
+  out_for_delivery: { label: "Mark done →", next: "delivered" },
+}
+
+/** Where the order goes: the address, the booked time, or how it's collected. */
+export function orderWhere(order: Pick<Order, "order_type" | "delivery_address" | "scheduled_for_local">): string {
+  switch (order.order_type) {
+    case "booking":
+      return `Booked for ${order.scheduled_for_local ?? "a time not set"}`
+    case "takeaway":
+      return "Pickup"
+    case "dine_in":
+      return "At your place"
+    default:
+      return order.delivery_address ?? "No address"
+  }
 }
 
 function formatAge(mins: number) {
@@ -33,7 +57,8 @@ export function Ticket({
   onAdvance?: (next: OrderStatus) => void
   justPrinted?: boolean
 }) {
-  const action = NEXT_ACTION[order.status]
+  const isDelivery = !order.order_type || order.order_type === "delivery"
+  const action = (isDelivery ? DELIVERY_ACTIONS : HANDOVER_ACTIONS)[order.status]
   const createdMs = new Date(order.created_at).getTime()
   const now = useNow()
 
@@ -79,7 +104,7 @@ export function Ticket({
 
       <div className="mt-2 border-t border-dashed border-paper-line pt-2 font-mono text-[12.5px]">
         <p>
-          {order.customer_name ?? "Customer"} · {order.delivery_address}
+          {order.customer_name ?? "Customer"} · {orderWhere(order)}
         </p>
         <p className="text-paper-muted">{order.payment_method.toUpperCase()}</p>
       </div>

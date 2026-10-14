@@ -95,7 +95,7 @@ def test_unchanged_values_are_not_logged():
 def test_unknown_setting_is_refused_with_a_message():
     db = make_db()
     tools = _make_tools(db, TENANT_ID, "u1", [])
-    update = next(t for t in tools if t.name == "update_restaurant_settings")
+    update = next(t for t in tools if t.name == "update_business_settings")
     reply = asyncio.run(update.ainvoke({"changes": {"delivery_fee_typo": 99}}))
     assert reply.startswith("Not saved. Unknown setting")
     assert db.tenants.docs[0]["delivery_settings"]["flat_delivery_fee"] == 100

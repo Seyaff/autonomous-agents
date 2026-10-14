@@ -15,7 +15,7 @@ function errorText(err: unknown) {
 }
 
 /**
- * Two ways to connect a restaurant's number: the Meta popup, or the details copied in by hand.
+ * Two ways to connect a business's number: the Meta popup, or the details copied in by hand.
  * Both run the same checks on the server and store the token encrypted.
  */
 export function WhatsAppConnectOptions({

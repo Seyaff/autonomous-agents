@@ -19,13 +19,14 @@ ORDER_STATUSES = ("pending", "accepted", "preparing", "out_for_delivery", "deliv
 ORDER_TRANSITIONS: Dict[str, frozenset] = {
     "pending": frozenset({"accepted", "cancelled"}),
     "accepted": frozenset({"preparing", "cancelled"}),
-    "preparing": frozenset({"out_for_delivery", "cancelled"}),
+    # Pickup, in-person and booked orders are done without a delivery leg.
+    "preparing": frozenset({"out_for_delivery", "delivered", "cancelled"}),
     "out_for_delivery": frozenset({"delivered"}),
     "delivered": frozenset(),
     "cancelled": frozenset(),
 }
 
-# Revenue counts orders the restaurant has accepted, not ones still waiting or dropped.
+# Revenue counts orders the business has accepted, not ones still waiting or dropped.
 REVENUE_EXCLUDED_STATUSES = ("pending", "cancelled")
 
 DEFAULT_DELIVERY_SETTINGS = {"flat_delivery_fee": 0.0, "avg_prep_time_minutes": 30}
@@ -38,9 +39,36 @@ STATUS_NOTICE = {
     "accepted": "Your order {order_id} has been accepted.",
     "preparing": "Your order {order_id} is being prepared.",
     "out_for_delivery": "Your order {order_id} is on the way.",
-    "delivered": "Your order {order_id} has been delivered. Enjoy your meal!",
+    "delivered": "Your order {order_id} has been delivered. Thank you!",
     "cancelled": "Your order {order_id} has been cancelled.",
 }
+
+# A booking reads differently: nothing is prepared or delivered.
+BOOKING_STATUS_NOTICE = {
+    "accepted": "Your booking {order_id} is confirmed.",
+    "delivered": "Thanks for coming in. Booking {order_id} is complete.",
+    "cancelled": "Your booking {order_id} has been cancelled.",
+}
+
+# Pickup and in-person orders aren't delivered; "delivered" means handed over.
+HANDOVER_STATUS_NOTICE = {
+    **STATUS_NOTICE,
+    "out_for_delivery": "Your order {order_id} is ready.",
+    "delivered": "Your order {order_id} is complete. Thank you!",
+}
+
+
+def status_notice(order: Dict[str, Any], new_status: str) -> Optional[str]:
+    """The message the customer gets when their order moves to new_status, if any."""
+    kind = order.get("order_type") or "delivery"
+    if kind == "booking":
+        table = BOOKING_STATUS_NOTICE
+    elif kind == "delivery":
+        table = STATUS_NOTICE
+    else:
+        table = HANDOVER_STATUS_NOTICE
+    notice = table.get(new_status)
+    return notice.format(order_id=order.get("order_id", "")) if notice else None
 
 
 class InvalidTransition(Exception):
@@ -60,17 +88,42 @@ def tenant_timezone(tenant: Optional[Dict[str, Any]]) -> str:
     return (tenant or {}).get("timezone") or DEFAULT_TIMEZONE
 
 
-def compute_totals(items: List[Dict[str, Any]], tenant: Optional[Dict[str, Any]]) -> Tuple[float, float, float, int]:
+def compute_totals(
+    items: List[Dict[str, Any]],
+    tenant: Optional[Dict[str, Any]],
+    order_type: str = "delivery",
+) -> Tuple[float, float, float, int]:
     """Returns (subtotal, delivery_fee, total, eta_minutes) for a list of items.
 
     Each item needs `price` and `quantity`. Rounding is to two decimals.
+    The delivery fee only applies to delivery orders.
     """
     settings = delivery_settings_for(tenant)
     subtotal = round(sum(float(i["price"]) * int(i["quantity"]) for i in items), 2)
-    delivery_fee = round(float(settings["flat_delivery_fee"]), 2)
+    delivery_fee = round(float(settings["flat_delivery_fee"]), 2) if order_type == "delivery" else 0.0
     total = round(subtotal + delivery_fee, 2)
     eta = int(settings["avg_prep_time_minutes"])
     return subtotal, delivery_fee, total, eta
+
+
+BOOKING_FORMAT = "%Y-%m-%d %H:%M"
+
+
+def parse_booking_time(value: str, tz_name: str) -> datetime:
+    """Reads "YYYY-MM-DD HH:MM" in the business's own timezone. Returns it timezone-aware, in that zone.
+    Raises ValueError with a message the agent can act on."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    text = (value or "").strip().replace("T", " ")[:16]
+    try:
+        naive = datetime.strptime(text, BOOKING_FORMAT)
+    except ValueError:
+        raise ValueError(f"Booking time must be YYYY-MM-DD HH:MM, got {value!r}.")
+    try:
+        zone = ZoneInfo(tz_name or "UTC")
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("UTC")
+    return naive.replace(tzinfo=zone)
 
 
 def initial_status_entry(now: datetime, by: str = "agent", by_user_id: Optional[str] = None) -> Dict[str, Any]:
@@ -110,8 +163,8 @@ async def notify_customer_status(
     Outside the 24h window nothing is sent (a template would be needed), and
     the caller gets False so it can say so honestly.
     """
-    notice = STATUS_NOTICE.get(new_status)
-    if not notice:
+    text = status_notice(order, new_status)
+    if not text:
         return False
 
     tenant_id = tenant["tenant_id"]
@@ -124,7 +177,6 @@ async def notify_customer_status(
         return False
 
     token, phone_number_id = resolve_tenant_whatsapp_credentials(tenant)
-    text = notice.format(order_id=order.get("order_id", ""))
     result = await send_text(
         to_phone=phone,
         text=text,

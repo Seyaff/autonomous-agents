@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import List, Literal, Optional
 from pydantic import BaseModel, EmailStr, Field
 
+from core.setup_state import BUSINESS_DESCRIPTION_MAX, OrderType
+
 
 class CreateUser(BaseModel):
     full_name: str = Field(
@@ -34,11 +36,15 @@ class CreateUser(BaseModel):
 
 class CreateTenantRequest(BaseModel):
     business_name: str = Field(..., description="The name of the business")
+    business_description: Optional[str] = Field(
+        None, max_length=BUSINESS_DESCRIPTION_MAX,
+        description="What the business does, in the owner's own words. The agent works from this.",
+    )
     business_phone: Optional[str] = Field(None)
     address: Optional[str] = Field(None)
     country: str = Field(..., description="ISO country code: PK, AE, SA, GB or US. Currency and timezone are derived from it.")
     city: Optional[str] = Field(None)
-    order_types: List[Literal["delivery", "takeaway", "dine_in"]] = Field(..., min_length=1)
+    order_types: List[OrderType] = Field(..., min_length=1)
     whatsapp_business_id: Optional[str] = Field(None)
     phone_number_id: Optional[str] = Field(None)
     whatsapp_access_token: Optional[str] = Field(None)

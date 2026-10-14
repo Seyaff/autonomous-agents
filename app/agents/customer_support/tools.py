@@ -10,15 +10,12 @@ from core.database import get_database
 from repositories.inbox_repo import inbox_repo
 from services.conversation_state import broadcast_conversation_updated
 from services.alerts import raise_alert
-from services.order_service import compute_totals, initial_status_entry
+from services.order_service import BOOKING_FORMAT, compute_totals, initial_status_entry, parse_booking_time
 from services.order_confirmation import AWAITING, find_awaiting, send_summary
-from services.availability import is_sold_out, sold_out_names
+from services.availability import catalog_prices, is_sold_out, normalize, sold_out_names
 from services.menu_view import menu_text
-from core.setup_state import hours_status
-from core.settings import settings
+from core.setup_state import ORDER_TYPE_LABELS, hours_status
 from core.events import broadcast_order_update
-from services.pdf_ingestion import embedding_model
-from langchain_pinecone import PineconeVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -27,53 +24,73 @@ from services.knowledge_ingestion import search_tenant_knowledge
 
 @tool
 async def search_uploaded_documents(query: str, config: RunnableConfig) -> str:
-    """Searches the restaurant's uploaded menus, pricing sheets, deals, and policies for factual answers.
-    ALWAYS call this tool first before answering customer questions about food, deals, prices, or policies.
+    """Searches the business's uploaded documents: menus, price lists, service lists, offers, policies and FAQs.
+    ALWAYS call this first before answering questions about offers, policies, how things work, or details
+    that aren't in the catalog.
     """
     configurable = config.get("configurable", {})
     tenant_id = configurable.get("tenant_id")
     if not tenant_id:
-        return "System notice: Restaurant tenant ID missing from context. Cannot query menu."
+        return "System notice: Business tenant ID missing from context. Cannot search documents."
 
     return await search_tenant_knowledge(query=query, tenant_id=tenant_id, top_k=4)
 
 
 @tool
-async def get_menu(category: Optional[str] = None, config: RunnableConfig = None) -> str:
-    """Returns the restaurant's dish list, grouped by category, with prices. Use it for any question
-    about which dishes there are or what they cost. Pass a category name to narrow it down.
+async def get_catalog(category: Optional[str] = None, config: RunnableConfig = None) -> str:
+    """Returns what the business sells (products, services or dishes), grouped by category, with prices.
+    Use it for any question about what's available or what it costs. Pass a category name to narrow it down.
     """
     configurable = (config or {}).get("configurable", {})
     tenant_id = configurable.get("tenant_id")
     if not tenant_id:
-        return "System notice: Restaurant tenant ID missing from context. Cannot read the menu."
+        return "System notice: Business tenant ID missing from context. Cannot read the catalog."
     db = get_database()
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
     text = await menu_text(db, tenant, category)
     if not text:
-        return "The dish list isn't set up yet. Use search_uploaded_documents for menu details."
+        return "The catalog isn't set up yet. Use search_uploaded_documents for details."
     return text
+
+
+def price_items(items: List[Dict[str, Any]], catalog: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalizes the model's items. An item that is in the owner's catalog takes the catalog's name and price."""
+    formatted = []
+    for item in items:
+        name = str(item.get("name", "Unknown Item")).strip()
+        qty = max(1, int(item.get("quantity", 1)))
+        price = float(item.get("price", 0.0))
+        known = catalog.get(normalize(name))
+        if known and isinstance(known.get("price"), (int, float)):
+            name, price = known["name"], float(known["price"])
+        formatted.append({"name": name, "quantity": qty, "price": price, "notes": item.get("notes")})
+    return formatted
 
 
 @tool
 async def create_order_tool(
-    delivery_address: str,
     items: List[Dict[str, Any]],
+    order_type: Literal["delivery", "takeaway", "dine_in", "booking"] = "delivery",
+    delivery_address: Optional[str] = None,
+    scheduled_for: Optional[str] = None,
     payment_method: str = "cod",
     customer_notes: Optional[str] = None,
     customer_name: Optional[str] = None,
     config: RunnableConfig = None
 ) -> str:
-    """Creates and saves a new customer order to the database.
-    
+    """Saves a customer's order or booking as a draft and sends them a summary to confirm.
+
     Args:
-        delivery_address: Destination delivery address provided by the customer.
-        items: List of ordered dishes/items. Each dict MUST contain 'name', 'quantity', and 'price'.
-               Example: [{"name": "Chicken Biryani", "quantity": 2, "price": 14.0}]
-        The total (including delivery) is calculated by the system, not by you.
+        items: What the customer wants. Each dict MUST contain 'name', 'quantity', and 'price'.
+               Example: [{"name": "Haircut", "quantity": 1, "price": 1500}]
+               Prices of catalog items are taken from the catalog. The total is calculated by the system.
+        order_type: 'delivery' (sent to the customer), 'takeaway' (customer picks it up),
+               'dine_in' (served at the business's own place), or 'booking' (an appointment at a set date and time).
+        delivery_address: Required for delivery.
+        scheduled_for: Required for a booking: "YYYY-MM-DD HH:MM" in the business's local time.
         payment_method: Payment method chosen by customer ('cod', 'card', 'cash'). Default is 'cod'.
-        customer_notes: Optional special instructions (e.g. 'extra spicy', 'no onions').
-        customer_name: Optional customer name if provided.
+        customer_notes: Optional special instructions.
+        customer_name: The customer's name. Required.
     """
     configurable = config.get("configurable", {}) if config else {}
     tenant_id = configurable.get("tenant_id", "default_tenant")
@@ -83,47 +100,62 @@ async def create_order_tool(
         db = get_database()
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
 
-        tenant_doc = await db["tenants"].find_one({"tenant_id": tenant_id})
-        currency = (tenant_doc or {}).get("currency") or "USD"
+        tenant_doc = await db["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+        currency = tenant_doc.get("currency") or "USD"
+        hours = tenant_doc.get("operating_hours") or []
+        tz_name = tenant_doc.get("timezone") or "UTC"
 
-        # Hard rule, not just prompt guidance: no orders while the restaurant is shut.
-        open_state = hours_status(
-            (tenant_doc or {}).get("operating_hours") or [],
-            (tenant_doc or {}).get("timezone") or "UTC",
-        )
-        if not open_state["open_now"]:
-            opens = open_state.get("opens_next") or "later"
+        offered = tenant_doc.get("order_types") or []
+        if offered and order_type not in offered:
             return (
-                f"The restaurant is closed right now. Next opening: {opens}. "
-                "Don't place the order. Tell the customer when we open."
+                f"This business doesn't take {ORDER_TYPE_LABELS.get(order_type, order_type)} orders. "
+                f"It takes: {', '.join(ORDER_TYPE_LABELS.get(t, t) for t in offered)}. Ask the customer which they want."
             )
 
-        formatted_items = []
-        item_names = []
-        for item in items:
-            name = str(item.get("name", "Unknown Item"))
-            qty = int(item.get("quantity", 1))
-            price = float(item.get("price", 0.0))
-            formatted_items.append({
-                "name": name,
-                "quantity": qty,
-                "price": price,
-                "notes": item.get("notes")
-            })
-            item_names.append(name)
+        scheduled_at = None
+        if order_type == "booking":
+            if not scheduled_for:
+                return "Ask the customer for the date and time of the booking first."
+            try:
+                scheduled_at = parse_booking_time(scheduled_for, tz_name)
+            except ValueError as e:
+                return str(e)
+            if scheduled_at <= datetime.now(timezone.utc):
+                return "That booking time has already passed. Ask the customer for a time in the future."
+            if not hours_status(hours, tz_name, scheduled_at)["open_now"]:
+                return (
+                    f"The business is closed at {scheduled_at.strftime(BOOKING_FORMAT)}. "
+                    "Tell the customer the opening hours and ask for another time."
+                )
+        else:
+            # Hard rule, not just prompt guidance: nothing for right now while the business is shut.
+            open_state = hours_status(hours, tz_name)
+            if not open_state["open_now"]:
+                opens = open_state.get("opens_next") or "later"
+                return (
+                    f"The business is closed right now. Next opening: {opens}. "
+                    "Don't place the order. Tell the customer when we open."
+                )
 
-        # Sold-out dishes are refused here too, not only in the prompt.
-        sold_out = await sold_out_names(db, tenant_doc or {"tenant_id": tenant_id})
+        if order_type == "delivery" and not (delivery_address or "").strip():
+            return "Ask the customer for the delivery address first."
+
+        formatted_items = price_items(items, await catalog_prices(db, tenant_id))
+        if not formatted_items:
+            return "There's nothing in the order. Ask the customer what they want."
+
+        # Unavailable items are refused here too, not only in the prompt.
+        sold_out = await sold_out_names(db, tenant_doc)
         blocked = [i["name"] for i in formatted_items if is_sold_out(i["name"], sold_out)]
         if blocked:
             return (
-                f"Sold out today: {', '.join(blocked)}. Don't place the order with them. "
+                f"Not available today: {', '.join(blocked)}. Don't place the order with them. "
                 "Tell the customer and ask them to pick something else."
             )
 
-        subtotal, delivery_fee, total_amount, eta_minutes = compute_totals(formatted_items, tenant_doc)
+        subtotal, delivery_fee, total_amount, eta_minutes = compute_totals(formatted_items, tenant_doc, order_type)
 
-        minimum = float((tenant_doc or {}).get("min_order_amount") or 0)
+        minimum = float(tenant_doc.get("min_order_amount") or 0)
         if minimum and subtotal < minimum:
             return (
                 f"Order is below the minimum of {currency} {minimum:.0f} "
@@ -137,7 +169,7 @@ async def create_order_tool(
             waiting = await find_awaiting(db, tenant_id, customer_phone)
             if waiting:
                 # Don't stack a second order on top of one the customer hasn't answered yet.
-                await send_summary(db, tenant_doc or {"tenant_id": tenant_id}, waiting)
+                await send_summary(db, tenant_doc, waiting)
                 return (
                     "An order is already waiting for the customer's answer. The summary was sent again. "
                     "Don't place another one; wait for them to tap Confirm."
@@ -146,12 +178,13 @@ async def create_order_tool(
         if configurable.get("test_mode"):
             # Test chat: show what would happen, change nothing.
             test_items = ", ".join(f"{i['quantity']}x {i['name']}" for i in formatted_items)
+            when = f"\nBooked for: {scheduled_at.strftime(BOOKING_FORMAT)}" if scheduled_at else ""
             return (
                 f"Order placed. Reference ID: TEST-{uuid.uuid4().hex[:6].upper()} (test chat, not saved).\n"
+                f"Type: {ORDER_TYPE_LABELS.get(order_type, order_type)}{when}\n"
                 f"Items: {test_items}\n"
                 f"Subtotal: {currency} {subtotal:.2f}, Delivery: {currency} {delivery_fee:.2f}\n"
-                f"Total Amount: {currency} {total_amount:.2f}\n"
-                f"Estimated time: about {eta_minutes} minutes"
+                f"Total Amount: {currency} {total_amount:.2f}"
             )
         now = datetime.now(timezone.utc)
         order_document = {
@@ -161,7 +194,10 @@ async def create_order_tool(
             "customer_name": customer_name.strip(),
             "conversation_id": f"conv_{tenant_id}_{customer_phone}",
             "source": "ai_agent",
-            "delivery_address": delivery_address,
+            "order_type": order_type,
+            "delivery_address": delivery_address.strip() if order_type == "delivery" and delivery_address else None,
+            "scheduled_for": scheduled_at.astimezone(timezone.utc) if scheduled_at else None,
+            "scheduled_for_local": scheduled_at.strftime(BOOKING_FORMAT) if scheduled_at else None,
             "items": formatted_items,
             "currency": currency,
             "subtotal": subtotal,
@@ -181,7 +217,7 @@ async def create_order_tool(
         if not result.inserted_id:
             return "Database error: Could not save the order draft."
 
-        sent = await send_summary(db, tenant_doc or {"tenant_id": tenant_id}, order_document)
+        sent = await send_summary(db, tenant_doc, order_document)
         if not sent.ok:
             logger.warning(f"Order summary for {order_id} could not be sent: {sent.error_message}")
             await db["orders"].update_one({"order_id": order_id}, {"$set": {"status": "cancelled", "cancellation_reason": "Summary not delivered"}})
@@ -190,7 +226,7 @@ async def create_order_tool(
         return (
             f"Summary sent to the customer with Confirm and Cancel buttons (order {order_id}). "
             "The order is NOT placed yet. Do not say it is placed or confirmed. "
-            "Ask the customer to tap Confirm, and say the restaurant will get it once they do."
+            "Ask the customer to tap Confirm, and say the business will get it once they do."
         )
 
     except PyMongoError as e:
@@ -223,8 +259,8 @@ async def get_order_status_tool(
     order_id: Optional[str] = None,
     config: RunnableConfig = None
 ) -> str:
-    """Checks the status of the customer's current or recent orders.
-    
+    """Checks the status of the customer's current or recent orders and bookings.
+
     Args:
         order_id: Specific Order ID (e.g. 'ORD-A1B2C3D4'). If omitted, retrieves customer's latest order.
     """
@@ -251,7 +287,13 @@ async def get_order_status_tool(
         total = order.get("total_amount", 0.0)
         items = order.get("items", [])
         items_summary = ", ".join([f"{i.get('quantity', 1)}x {i.get('name', 'item')}" for i in items])
-        address = order.get("delivery_address", "Pickup/Takeaway")
+        kind = order.get("order_type") or "delivery"
+        if kind == "booking":
+            where = f"- Booked for: {order.get('scheduled_for_local') or 'not set'}"
+        elif kind == "delivery":
+            where = f"- Delivery To: {order.get('delivery_address') or 'not set'}"
+        else:
+            where = f"- Type: {ORDER_TYPE_LABELS.get(kind, kind)}"
         created = order.get("created_at")
         time_str = created.strftime("%Y-%m-%d %H:%M UTC") if isinstance(created, datetime) else "Recently"
 
@@ -261,7 +303,7 @@ async def get_order_status_tool(
             f"- Placed At: {time_str}\n"
             f"- Items: {items_summary}\n"
             f"- Total: {order.get('currency', 'USD')} {total:.2f}\n"
-            f"- Delivery To: {address}"
+            f"{where}"
         )
 
     except Exception as e:
@@ -278,7 +320,7 @@ async def update_order_tool(
 ) -> str:
     """Updates an existing order's delivery address or special instructions.
     Orders can only be modified if they are still in 'pending' or 'accepted' status.
-    
+
     Args:
         order_id: The Reference ID of the order to modify.
         new_delivery_address: Optional updated delivery location.
@@ -331,8 +373,8 @@ async def cancel_order_tool(
     reason: Optional[str] = None,
     config: RunnableConfig = None
 ) -> str:
-    """Cancels a customer order if it has not yet left the kitchen.
-    
+    """Cancels a customer order or booking if it isn't already on its way or done.
+
     Args:
         order_id: The Reference ID of the order to cancel.
         reason: Optional reason for cancellation.
@@ -385,14 +427,14 @@ async def escalate_to_owner(
     summary: str,
     config: RunnableConfig = None,
 ) -> str:
-    """Hands this customer's chat to the restaurant owner. Use it for refund
+    """Hands this customer's chat to the business owner. Use it for refund
     requests, complaints, requests to speak to a person, and anything you
-    cannot resolve from the menu or order tools. After calling it, tell the
-    customer you've passed this to the restaurant and a person will follow up.
+    cannot resolve from the catalog, documents or order tools. After calling it,
+    tell the customer you've passed this on and a person will follow up.
 
     Args:
         reason: Why it needs a person: refund, complaint, human_requested, agent_failed, other.
-        summary: One line for the owner, e.g. "Wants refund for cold biryani, ORD-6A21".
+        summary: One line for the owner, e.g. "Wants refund for a damaged item, ORD-6A21".
     """
     configurable = config.get("configurable", {}) if config else {}
     tenant_id = configurable.get("tenant_id")
@@ -401,7 +443,7 @@ async def escalate_to_owner(
         return "Could not escalate: missing conversation context."
 
     if configurable.get("test_mode"):
-        return "Escalated to the restaurant. Tell the customer you've passed this to the restaurant."
+        return "Escalated to the owner. Tell the customer you've passed this on."
 
     conversation_id = f"conv_{tenant_id}_{customer_phone}"
     try:
@@ -421,7 +463,7 @@ async def escalate_to_owner(
             severity="warning",
             ref={"customer_phone": customer_phone, "conversation_id": conversation_id},
         )
-        return "Escalated to the restaurant. Tell the customer you've passed this to the restaurant."
+        return "Escalated to the owner. Tell the customer you've passed this on."
     except Exception as e:
         logger.error(f"Error escalating conversation {conversation_id}: {e}")
         await raise_alert(

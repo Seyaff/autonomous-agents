@@ -16,12 +16,12 @@ import {
 
 // Short labels for what the assistant is doing while it works.
 const TOOL_STEPS: Record<string, string> = {
-  get_restaurant_settings: "Reading your settings",
-  update_restaurant_settings: "Saving restaurant settings",
+  get_business_settings: "Reading your settings",
+  update_business_settings: "Saving business settings",
   update_reply_settings: "Saving reply settings",
   set_agent_enabled: "Updating the agent",
-  list_menu: "Checking the menu",
-  set_dish_sold_out: "Updating the menu",
+  list_catalog: "Checking the catalog",
+  set_item_unavailable: "Updating the catalog",
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -38,7 +38,8 @@ const FIELD_LABELS: Record<string, string> = {
   payment_methods: "Payment methods",
   order_types: "Order types",
   agent_enabled: "Agent on/off",
-  "menu.sold_out": "Sold out today",
+  "menu.sold_out": "Unavailable today",
+  business_description: "Business description",
 }
 
 const EXAMPLES = [
@@ -126,7 +127,7 @@ export default function AssistantPage() {
       <div className="shrink-0 border-b border-border bg-card px-4 py-2">
         <h1 className="text-sm font-medium">Assistant</h1>
         <p className="font-mono text-[11px] text-muted-foreground">
-          Tell it what to change. It updates your settings, menu and replies, and shows what it changed.
+          Tell it what to change. It updates your settings, catalog and replies, and shows what it changed.
         </p>
       </div>
 

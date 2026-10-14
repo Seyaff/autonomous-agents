@@ -15,6 +15,17 @@ SETUP_STEPS: List[str] = ["restaurant", "menu", "hours", "agent", "test", "whats
 SKIPPABLE = {"menu", "whatsapp"}  # WhatsApp can be connected later; the dashboard keeps reminding the owner
 DAYS: List[str] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
+# How customers buy from a business. The stored values predate other kinds of business,
+# so "takeaway" means pickup and "dine_in" means served at the business's own place.
+OrderType = Literal["delivery", "takeaway", "dine_in", "booking"]
+ORDER_TYPE_LABELS: Dict[str, str] = {
+    "delivery": "delivery",
+    "takeaway": "pickup",
+    "dine_in": "at our place",
+    "booking": "booking (a set date and time)",
+}
+BUSINESS_DESCRIPTION_MAX = 2000
+
 # Currency and timezone are derived from the country on the server. The client never sends them.
 COUNTRY_DEFAULTS: Dict[str, Tuple[str, str]] = {
     "PK": ("PKR", "Asia/Karachi"),

@@ -76,9 +76,9 @@ export function MenuStep() {
   return (
     <>
       <div className="space-y-1.5">
-        <DialogTitle className="font-heading text-lg">Upload your menu</DialogTitle>
+        <DialogTitle className="font-heading text-lg">Add your catalog</DialogTitle>
         <DialogDescription>
-          The agent reads your dishes and prices from this. You can change it later.
+          Your menu, price list or list of services. The agent reads your items and prices from it. You can change it later.
         </DialogDescription>
       </div>
 
@@ -114,7 +114,7 @@ export function MenuStep() {
           <AlertCircleIcon className="size-4" />
           <AlertTitle>{failed.filename} wasn&apos;t read</AlertTitle>
           <AlertDescription>
-            {failed.error ?? "Something went wrong while reading the menu."}
+            {failed.error ?? "Something went wrong while reading the file."}
             <div className="mt-2">
               <Button size="sm" variant="outline" onClick={() => { upload.reset(); setReplacing(true) }}>
                 Upload a different PDF
@@ -141,9 +141,9 @@ export function MenuStep() {
           }`}
         >
           <UploadCloudIcon className="size-7 text-muted-foreground" />
-          <span className="text-sm font-medium">Upload your menu</span>
+          <span className="text-sm font-medium">Upload a PDF</span>
           <span className="font-mono text-[11px] text-muted-foreground">
-            PDF up to 20 MB. Photos of a printed menu aren&apos;t supported yet.
+            PDF up to 20 MB. Photos of a printed list aren&apos;t supported yet.
           </span>
           <span className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-sm">
             {upload.start.isPending ? "Starting..." : "Choose file"}
@@ -233,7 +233,7 @@ export function MenuStep() {
 
       {!running && !hasItems && !failed && !pickError && menu.data && (
         <p className="font-mono text-[12px] text-muted-foreground">
-          Nothing read from the menu yet. Upload a PDF to continue, or skip this step for now.
+          Nothing read from the file yet. Upload a PDF to continue, or skip this step for now.
         </p>
       )}
 

@@ -40,7 +40,7 @@ async def upload_pdf_knowledge(
     if not tenant_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active restaurant profile linked to your account."
+            detail="No active business profile linked to your account."
         )
 
     if not file.filename.lower().endswith(".pdf"):
@@ -80,7 +80,7 @@ async def add_text_knowledge(
     if not tenant_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active restaurant profile linked to your account."
+            detail="No active business profile linked to your account."
         )
 
     result = await ingest_text_knowledge_for_tenant(
