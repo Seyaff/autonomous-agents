@@ -71,6 +71,8 @@ export interface ConversationDetailResponse {
   conversation: Conversation
   messages: Message[]
   has_more: boolean
+  /** False once 24 hours have passed since the customer last wrote. Only a template can go then. */
+  reply_window_open?: boolean
 }
 
 export interface ListConversationsParams {
@@ -129,4 +131,12 @@ export const sendMessage = async (conversationId: string, content: string) => {
     type: "text",
   })
   return res.data
+}
+
+export const sendTemplateMessage = async (
+  conversationId: string,
+  payload: { name: string; language: string; body_params: string[]; header_params: string[] }
+) => {
+  const res = await API.post(`/inbox/conversations/${conversationId}/template`, payload)
+  return res.data as { status: "success" | "failed"; error: string | null }
 }

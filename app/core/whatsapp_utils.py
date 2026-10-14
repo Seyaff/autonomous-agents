@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -21,10 +21,10 @@ NOT_CONNECTED = "This business hasn't connected its WhatsApp yet. Connect it in 
 def resolve_tenant_whatsapp_credentials(tenant: Optional[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
     """
     Returns (access_token, phone_number_id) for a tenant, or None for either one that
-    the restaurant hasn't connected yet.
+    the business hasn't connected yet.
 
-    Every restaurant uses its own Meta Embedded Signup credentials. Nothing falls back
-    to a shared server-wide token, so one restaurant can never send as another.
+    Every business uses its own Meta Embedded Signup credentials. Nothing falls back
+    to a shared server-wide token, so one business can never send as another.
     The stored token is decrypted here, and only here.
     """
     tenant = tenant or {}
@@ -43,6 +43,8 @@ class SendResult:
     status: Optional[int] = None
     error_code: Optional[int] = None
     error_message: Optional[str] = None
+    # Meta's id for the sent message (the wamid). Delivery and read receipts refer to it.
+    message_id: Optional[str] = None
 
     @property
     def auth_error(self) -> bool:
@@ -52,9 +54,37 @@ class SendResult:
 def _meta_error(response: httpx.Response) -> Tuple[Optional[int], str]:
     try:
         err = response.json().get("error", {})
-        return err.get("code"), err.get("message") or response.text
+        return err.get("code"), err.get("error_user_msg") or err.get("message") or response.text
     except ValueError:
         return None, response.text
+
+
+def _sent_id(response: httpx.Response) -> Optional[str]:
+    try:
+        return (response.json().get("messages") or [{}])[0].get("id")
+    except (ValueError, AttributeError, IndexError):
+        return None
+
+
+async def _post_message(phone_id: str, auth_token: str, payload: Dict[str, Any], what: str) -> SendResult:
+    """Posts one message to the Cloud API and reports what happened."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.post(
+                f"{GRAPH}/{phone_id}/messages",
+                json={"messaging_product": "whatsapp", "recipient_type": "individual", **payload},
+                headers={"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"},
+            )
+        except httpx.RequestError as exc:
+            logger.error(f"HTTP request error sending WhatsApp {what}: {exc}")
+            return SendResult(ok=False, error_message=f"Could not reach WhatsApp: {exc}")
+
+    if response.status_code in (200, 201):
+        return SendResult(ok=True, status=response.status_code, message_id=_sent_id(response))
+
+    code, message = _meta_error(response)
+    logger.error(f"Meta WhatsApp {what} error ({response.status_code}): {response.text}")
+    return SendResult(ok=False, status=response.status_code, error_code=code, error_message=message)
 
 
 async def send_text(
@@ -68,34 +98,35 @@ async def send_text(
     if creds is None:
         return SendResult(ok=False, error_message=NOT_CONNECTED)
     auth_token, phone_id = creds
-
-    url = f"{GRAPH}/{phone_id}/messages"
-    headers = {
-        "Authorization": f"Bearer {auth_token}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_phone,
-        "type": "text",
-        "text": {"preview_url": False, "body": text},
-    }
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            response = await client.post(url, json=payload, headers=headers)
-        except httpx.RequestError as exc:
-            logger.error(f"HTTP request error sending WhatsApp message: {exc}")
-            return SendResult(ok=False, error_message=f"Could not reach WhatsApp: {exc}")
-
-    if response.status_code in (200, 201):
+    result = await _post_message(
+        phone_id,
+        auth_token,
+        {"to": to_phone, "type": "text", "text": {"preview_url": False, "body": text}},
+        "message",
+    )
+    if result.ok:
         logger.info(f"Successfully sent WhatsApp message to {to_phone}")
-        return SendResult(ok=True, status=response.status_code)
+    return result
 
-    code, message = _meta_error(response)
-    logger.error(f"Meta WhatsApp API error ({response.status_code}): {response.text}")
-    return SendResult(ok=False, status=response.status_code, error_code=code, error_message=message)
+
+async def send_template(
+    to_phone: str,
+    name: str,
+    language: str,
+    components: Optional[List[Dict[str, Any]]] = None,
+    token: Optional[str] = None,
+    phone_number_id: Optional[str] = None,
+) -> SendResult:
+    """Sends an approved message template. Templates are the only messages Meta lets a business
+    send more than 24 hours after the customer last wrote."""
+    creds = _require_credentials(token, phone_number_id)
+    if creds is None:
+        return SendResult(ok=False, error_message=NOT_CONNECTED)
+    auth_token, phone_id = creds
+    template: Dict[str, Any] = {"name": name, "language": {"code": language}}
+    if components:
+        template["components"] = components
+    return await _post_message(phone_id, auth_token, {"to": to_phone, "type": "template", "template": template}, "template")
 
 
 async def send_whatsapp_message(
@@ -126,7 +157,7 @@ async def verify_phone_number(token: str, phone_number_id: str) -> Dict[str, Any
 
 async def subscribe_business_account(token: str, waba_id: str) -> None:
     """Asks Meta to send this business account's messages to our webhook.
-    Without this, messages to the restaurant's number never reach the agent.
+    Without this, messages to the business's number never reach the agent.
     Raises ValueError with Meta's message if it fails."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
@@ -180,8 +211,6 @@ async def send_buttons(
         return SendResult(ok=False, error_message=NOT_CONNECTED)
     auth_token, phone_id = creds
     payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
         "to": to_phone,
         "type": "interactive",
         "interactive": {
@@ -195,17 +224,60 @@ async def send_buttons(
             },
         },
     }
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            response = await client.post(
-                f"{GRAPH}/{phone_id}/messages",
-                json=payload,
-                headers={"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"},
-            )
-        except httpx.RequestError as exc:
-            return SendResult(ok=False, error_message=f"Could not reach WhatsApp: {exc}")
-    if response.status_code in (200, 201):
-        return SendResult(ok=True, status=response.status_code)
-    code, message = _meta_error(response)
-    logger.error(f"Meta WhatsApp buttons error ({response.status_code}): {response.text}")
-    return SendResult(ok=False, status=response.status_code, error_code=code, error_message=message)
+    return await _post_message(phone_id, auth_token, payload, "buttons")
+
+
+# ---------------------------------------------------------------------------
+# Message templates on the business account (WABA)
+# ---------------------------------------------------------------------------
+TEMPLATE_FIELDS = "id,name,language,status,category,components,rejected_reason"
+
+
+async def list_templates(token: str, waba_id: str) -> List[Dict[str, Any]]:
+    """Every template on the business account, following Meta's paging. Raises ValueError with Meta's message."""
+    templates: List[Dict[str, Any]] = []
+    url: Optional[str] = f"{GRAPH}/{waba_id}/message_templates"
+    params: Optional[Dict[str, Any]] = {"fields": TEMPLATE_FIELDS, "limit": 100}
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for _ in range(20):  # 2,000 templates, more than Meta allows on one account
+            if not url:
+                break
+            response = await client.get(url, params=params, headers={"Authorization": f"Bearer {token}"})
+            if response.status_code != 200:
+                _, message = _meta_error(response)
+                raise ValueError(f"Meta would not list the templates: {message}")
+            data = response.json()
+            templates.extend(data.get("data") or [])
+            url = (data.get("paging") or {}).get("next")
+            params = None  # the next link already carries them
+    return templates
+
+
+async def create_template(token: str, waba_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Submits a template for Meta's review. Returns {"id", "status", "category"}.
+    Raises ValueError with Meta's message."""
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            f"{GRAPH}/{waba_id}/message_templates",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+    if response.status_code not in (200, 201):
+        _, message = _meta_error(response)
+        raise ValueError(f"Meta didn't accept the template: {message}")
+    return response.json()
+
+
+async def delete_template(token: str, waba_id: str, name: str, template_id: Optional[str] = None) -> None:
+    """Deletes a template. With an id only that language version goes; without, every language of the name.
+    Raises ValueError with Meta's message."""
+    params: Dict[str, Any] = {"name": name}
+    if template_id:
+        params["hsm_id"] = template_id
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.delete(
+            f"{GRAPH}/{waba_id}/message_templates", params=params, headers={"Authorization": f"Bearer {token}"}
+        )
+    if response.status_code != 200:
+        _, message = _meta_error(response)
+        raise ValueError(f"Meta would not delete the template: {message}")

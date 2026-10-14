@@ -110,6 +110,13 @@ class SendMessageRequest(BaseModel):
     media: Optional[MediaInfoSchema] = None
 
 
+class SendTemplateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=512)
+    language: str = Field(..., min_length=2, max_length=10)
+    body_params: List[str] = Field(default_factory=list, max_length=20)
+    header_params: List[str] = Field(default_factory=list, max_length=1)
+
+
 class UpdateConversationRequest(BaseModel):
     status: Optional[Literal["open", "closed", "archived"]] = None
     tags: Optional[List[str]] = None
