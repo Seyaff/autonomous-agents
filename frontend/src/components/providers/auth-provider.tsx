@@ -50,20 +50,6 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/terms", "/pricing", "/how-it-works", "/faq", "/guides"]
 // Public sections with sub-pages, such as /guides/<slug>. Matched by prefix.
 const PUBLIC_PREFIXES = ["/guides/", "/features/", "/compare/"]
-
-// The linked screen, from the marker the server sets: "kind/restaurant".
-const PORTAL_BY_KIND: Record<string, string> = { waiter: "staff", kitchen: "kitchen", counter: "counter" }
-const PORTAL_PREFIXES = ["/staff/", "/kitchen/", "/counter/"]
-
-function readDevice(): { page: string; slug: string } | null {
-    if (typeof document === "undefined") return null
-    const match = document.cookie.match(/(?:^|;\s*)siyaf_ipad=([^;]+)/)
-    if (!match) return null
-    const [kind, slug] = decodeURIComponent(match[1]).split("/")
-    const page = PORTAL_BY_KIND[kind]
-    return page && slug ? { page, slug } : null
-}
-
 const FOUNDER_PREFIX = "/founder"
 const SETUP_PREFIX = "/setup"
 
@@ -110,17 +96,7 @@ export default function AuthProvider({
 
     // Handle redirects based on auth/role/setup state
     useEffect(() => {
-        // A linked screen (waiter iPad, kitchen, counter) is locked to its own page.
-        const device = readDevice()
-        if (device && !pathname.startsWith(`/${device.page}/`)) {
-            router.replace(`/${device.page}/${device.slug}`)
-            return
-        }
-
         if (isLoading) return
-
-        // Staff screens run on their own sign-in, so the owner's session never moves them.
-        if (PORTAL_PREFIXES.some((p) => pathname.startsWith(p))) return
 
         const isPublicPath = PUBLIC_PATHS.some(p => pathname === p)
             || PUBLIC_PREFIXES.some(p => pathname.startsWith(p))
