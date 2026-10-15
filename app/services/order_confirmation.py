@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from core.whatsapp_utils import SendResult, resolve_tenant_whatsapp_credentials, send_buttons, send_text
+from core.whatsapp_utils import SendResult
 
 logger = logging.getLogger(__name__)
 
@@ -68,21 +68,18 @@ def confirmed_text(order: Dict[str, Any]) -> str:
     return f"Order confirm ho gaya: {order['order_id']}. {total}. Shukriya!"
 
 
-def _resolve(tenant: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    return resolve_tenant_whatsapp_credentials(tenant)
-
-
 async def send_summary(db, tenant: Dict[str, Any], order: Dict[str, Any]) -> SendResult:
-    token, phone_id = _resolve(tenant)
-    return await send_buttons(
-        to_phone=order["customer_phone"],
-        body=summary_text(order),
-        buttons=[
+    from services.channels import send_buttons_to
+
+    return await send_buttons_to(
+        tenant,
+        order["customer_phone"],
+        summary_text(order),
+        [
             {"id": f"{CONFIRM_PREFIX}{order['order_id']}", "title": "Confirm"},
             {"id": f"{CANCEL_PREFIX}{order['order_id']}", "title": "Cancel"},
         ],
-        token=token,
-        phone_number_id=phone_id,
+        db,
     )
 
 
@@ -99,8 +96,9 @@ async def find_awaiting(db, tenant_id: str, customer_phone: str) -> Optional[Dic
 async def _reply(db, tenant: Dict[str, Any], customer_phone: str, text: str) -> None:
     from services.message_service import message_service
 
-    token, phone_id = _resolve(tenant)
-    await send_text(to_phone=customer_phone, text=text, token=token, phone_number_id=phone_id)
+    from services.channels import send_text_to
+
+    await send_text_to(tenant, customer_phone, text, db)
     conversation = await db["conversations"].find_one(
         {"tenant_id": tenant["tenant_id"], "customer_phone": customer_phone}, {"conversation_id": 1}
     )

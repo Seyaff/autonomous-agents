@@ -96,6 +96,10 @@ class TenantPublic(BaseModel):
     whatsapp_connected: bool = False
     whatsapp_status: str = "disconnected"
     whatsapp_last_error: Optional[str] = None
+    instagram_connected: bool = False
+    instagram_status: str = "disconnected"
+    instagram_username: Optional[str] = None
+    instagram_last_error: Optional[str] = None
     verified_name: Optional[str] = None
     agent_enabled: bool = True
     display_phone_number: Optional[str] = None

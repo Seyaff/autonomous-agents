@@ -56,6 +56,10 @@ export interface TenantSettings {
   whatsapp_connected: boolean
   whatsapp_status?: "connected" | "disconnected" | "error"
   whatsapp_last_error?: string | null
+  instagram_connected?: boolean
+  instagram_status?: "connected" | "disconnected" | "error"
+  instagram_username?: string | null
+  instagram_last_error?: string | null
   verified_name?: string | null
   display_phone_number?: string | null
   agent_enabled: boolean

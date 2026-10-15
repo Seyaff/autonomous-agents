@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { contactLabel, isInstagram } from "@/lib/channel"
 import { AgentTraceLine } from "@/components/console/agent-trace-line"
 import { MessageTicks } from "@/components/console/message-ticks"
 import { TypingIndicator } from "@/components/console/typing-indicator"
@@ -86,8 +87,8 @@ export function ThreadPane({
           <AvatarFallback>{initials(conversation.customer_name)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{conversation.customer_name}</p>
-          <p className="truncate text-xs text-muted-foreground">{conversation.customer_phone}</p>
+          <p className="truncate text-sm font-medium">{conversation.customer_name || contactLabel(conversation)}</p>
+          <p className="truncate text-xs text-muted-foreground">{contactLabel(conversation)}</p>
         </div>
         <TakeoverBar
           conversation={conversation}
@@ -172,7 +173,11 @@ export function ThreadPane({
         <QuickReplies onPick={(text) => onSend(text)} />
       )}
 
-      {!replyWindowOpen && conversation.status !== "closed" ? (
+      {!replyWindowOpen && conversation.status !== "closed" && isInstagram(conversation) ? (
+        <p className="shrink-0 border-t border-border bg-card p-3 font-mono text-[11px] text-muted-foreground">
+          It&apos;s been more than 24 hours since this customer wrote. Instagram only lets you reply after they message again.
+        </p>
+      ) : !replyWindowOpen && conversation.status !== "closed" ? (
         <TemplateSender conversationId={conversation.conversation_id} />
       ) : (
       <form onSubmit={handleSubmit} className="flex shrink-0 items-center gap-2 border-t border-border bg-card p-3">

@@ -16,6 +16,7 @@ import { useTenantSettings } from "@/hooks/tenant/use-tenant-settings"
 import { useUsage } from "@/hooks/billing/use-usage"
 import { AlertPreferences } from "@/components/settings/alert-preferences"
 import { SecuritySection } from "@/components/settings/security-section"
+import { InstagramConnect } from "@/components/settings/instagram-connect"
 import { USE_MOCKS } from "@/lib/mocks"
 import type { TenantSettingsUpdate } from "@/services/tenant/tenant.service"
 
@@ -188,13 +189,15 @@ function Settings() {
             </div>
           </section>
 
+          <InstagramConnect tenant={t} />
+
           <section className="rounded-lg border border-border bg-card p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-medium">Customer agent</h2>
                 <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                   {t.agent_enabled
-                    ? "Replying to customers on WhatsApp."
+                    ? `Replying to customers on WhatsApp${t.instagram_connected ? " and Instagram" : ""}.`
                     : "Paused. Customers reach you in the inbox, and you reply by hand."}
                 </p>
               </div>

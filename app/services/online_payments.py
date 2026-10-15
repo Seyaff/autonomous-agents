@@ -149,17 +149,15 @@ def _business(tenant: Dict[str, Any]) -> str:
 
 
 async def _reply(tenant: Dict[str, Any], customer_phone: str, text: str) -> None:
-    from core.whatsapp_utils import resolve_tenant_whatsapp_credentials, send_text
+    from services.channels import send_text_to
 
-    token, phone_id = resolve_tenant_whatsapp_credentials(tenant)
-    await send_text(to_phone=customer_phone, text=text, token=token, phone_number_id=phone_id)
+    await send_text_to(tenant, customer_phone, text)
 
 
 async def _buttons(tenant: Dict[str, Any], customer_phone: str, body: str, buttons: list) -> None:
-    from core.whatsapp_utils import resolve_tenant_whatsapp_credentials, send_buttons
+    from services.channels import send_buttons_to
 
-    token, phone_id = resolve_tenant_whatsapp_credentials(tenant)
-    await send_buttons(to_phone=customer_phone, body=body, buttons=buttons, token=token, phone_number_id=phone_id)
+    await send_buttons_to(tenant, customer_phone, body, buttons)
 
 
 async def ask_how_to_pay(db, tenant: Dict[str, Any], order: Dict[str, Any], provider: OnlineProvider) -> None:
