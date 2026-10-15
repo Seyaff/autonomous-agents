@@ -29,7 +29,9 @@ from agents.customer_support.tools import (
     update_order_tool,
     cancel_order_tool,
     escalate_to_owner,
+    send_form,
 )
+from services.forms import published_forms
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -58,6 +60,7 @@ tools = [
     update_order_tool,
     cancel_order_tool,
     escalate_to_owner,
+    send_form,
 ]
 
 _agents: Dict[str, CompiledStateGraph] = {}
@@ -193,7 +196,11 @@ async def run_agent_turn(
 
     async with lock:
         sold_out = await sold_out_names(db, tenant)
-        system_prompt = compile_customer_support_prompt({**tenant, "sold_out": sold_out}, customer_context)
+        try:
+            forms = await published_forms(db, tenant_id)
+        except Exception:
+            forms = []  # a forms read failure must not stop the reply
+        system_prompt = compile_customer_support_prompt({**tenant, "sold_out": sold_out, "forms": forms}, customer_context)
         messages: List[BaseMessage] = [
             SystemMessage(content=system_prompt),
             *window,
