@@ -13,6 +13,7 @@ import { MessageTicks } from "@/components/console/message-ticks"
 import { TypingIndicator } from "@/components/console/typing-indicator"
 import { TakeoverBar } from "@/components/console/takeover-bar"
 import { QuickReplies } from "@/components/console/quick-replies"
+import { TemplateSender } from "@/components/console/template-sender"
 import { USE_MOCKS } from "@/lib/mocks"
 import type { MockConversation } from "@/lib/mock/conversations"
 import type { MockMessage } from "@/lib/mock/messages"
@@ -33,6 +34,7 @@ export function ThreadPane({
   messages,
   isLoading,
   isSending,
+  replyWindowOpen = true,
   onSend,
   onToggleTakeover,
   onResolveEscalation,
@@ -41,6 +43,7 @@ export function ThreadPane({
   messages: MockMessage[]
   isLoading: boolean
   isSending: boolean
+  replyWindowOpen?: boolean
   onSend: (text: string) => void
   onToggleTakeover: () => void
   onResolveEscalation: () => void
@@ -169,6 +172,9 @@ export function ThreadPane({
         <QuickReplies onPick={(text) => onSend(text)} />
       )}
 
+      {!replyWindowOpen && conversation.status !== "closed" ? (
+        <TemplateSender conversationId={conversation.conversation_id} />
+      ) : (
       <form onSubmit={handleSubmit} className="flex shrink-0 items-center gap-2 border-t border-border bg-card p-3">
         <Input
           value={draft}
@@ -182,6 +188,7 @@ export function ThreadPane({
           <span className="sr-only">Send</span>
         </Button>
       </form>
+      )}
     </div>
   )
 }

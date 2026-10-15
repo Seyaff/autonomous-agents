@@ -27,6 +27,8 @@ from agents.customer_support.agent import run_customer_support_turn
 from services.billing import agent_allowed
 from services.message_service import message_service
 from services.conversation_state import conversation_blocks_agent, is_escalated
+from services.campaigns import handle_marketing_keywords, record_receipt
+from services.templates import apply_status_update
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +184,7 @@ async def handle_text_turn(
     tenant_phone_id: Optional[str],
     request_id: str = "bg",
     customer_name: str = "",
+    wamid: Optional[str] = None,
 ):
     """Background task for an inbound text message."""
     try:
@@ -195,9 +198,15 @@ async def handle_text_turn(
             sender_phone=sender_phone,
             content=user_payload,
             message_type="text",
-            wamid=request_id,  # using request_id as fallback, actual wamid would come from webhook
+            wamid=wamid or request_id,
             customer_name=customer_name,
         )
+
+        # STOP and START control promotional messages. They're answered here, not by the agent.
+        keyword_reply = await handle_marketing_keywords(database, tenant, sender_phone, user_payload)
+        if keyword_reply:
+            await _send_and_record(database, tenant_id, sender_phone, keyword_reply, tenant_token, tenant_phone_id, sender="system")
+            return
 
         # The inbound message is already saved. Don't let the agent answer if
         # the owner has taken the chat, it's waiting on the owner after an
@@ -228,7 +237,7 @@ async def handle_text_turn(
             tenant=tenant,
             customer_phone=sender_phone,
             user_message=user_payload,
-            inbound_wamid=request_id,
+            inbound_wamid=wamid or request_id,
         )
 
         if reply_text:
@@ -236,32 +245,7 @@ async def handle_text_turn(
                 f"[{request_id}] Agent reply to [{sender_phone}] for tenant [{tenant_id}]: {reply_text}"
             )
             
-            # Persist outbound message (optimistic)
-            # Get conversation_id from thread_id format
-            conversation_id = f"conv_{tenant_id}_{sender_phone}"
-            message = await message_service.persist_outbound(
-                conversation_id=conversation_id,
-                tenant_id=tenant_id,
-                content=reply_text,
-                message_type="text",
-                sender="agent",
-            )
-            
-            # Send via WhatsApp. Record what actually happened, and tell the owner if it didn't go.
-            result = await send_text(
-                to_phone=sender_phone,
-                text=reply_text,
-                token=tenant_token,
-                phone_number_id=tenant_phone_id,
-            )
-            if message:
-                await message_service.update_outbound_status(
-                    message_id=message.message_id,
-                    wamid="pending",  # placeholder, actual wamid from Meta callback
-                    status="sent" if result.ok else "failed",
-                )
-            if not result.ok:
-                await _report_send_failure(database, tenant_id, sender_phone, result, "reply")
+            await _send_and_record(database, tenant_id, sender_phone, reply_text, tenant_token, tenant_phone_id)
     except Exception as e:
         logger.exception(f"[{request_id}] Background text turn failed for {sender_phone}: {e}")
         await raise_alert(
@@ -273,6 +257,27 @@ async def handle_text_turn(
             severity="critical",
             ref={"customer_phone": sender_phone},
         )
+
+
+async def _send_and_record(database, tenant_id: str, sender_phone: str, text: str, token, phone_id, sender: str = "agent") -> None:
+    """Saves the reply to the inbox, sends it, and records Meta's id for it so receipts can find it.
+    Tells the owner if it didn't go."""
+    message = await message_service.persist_outbound(
+        conversation_id=f"conv_{tenant_id}_{sender_phone}",
+        tenant_id=tenant_id,
+        content=text,
+        message_type="text",
+        sender=sender,
+    )
+    result = await send_text(to_phone=sender_phone, text=text, token=token, phone_number_id=phone_id)
+    if message:
+        await message_service.update_outbound_status(
+            message_id=message.message_id,
+            wamid=result.message_id or "",
+            status="sent" if result.ok else "failed",
+        )
+    if not result.ok:
+        await _report_send_failure(database, tenant_id, sender_phone, result, "reply")
 
 
 async def _report_send_failure(database, tenant_id: str, sender_phone: str, result, what: str) -> None:
@@ -356,7 +361,8 @@ async def receive_meta_webhook(
     database=Depends(get_database),
 ):
     """
-    Receive inbound WhatsApp webhooks.
+    Receive WhatsApp webhooks: customer messages, delivery and read receipts,
+    and template review results.
 
     Design:
       - Parse → resolve tenant → dedup → enqueue → return 200 immediately.
@@ -365,29 +371,62 @@ async def receive_meta_webhook(
         retries (which fire when we're slow) are silently dropped.
     """
     request_id = getattr(request.state, "request_id", "unknown")
-    
-    # ---- 1. Parse ----
+
     try:
         body = await request.json()
     except Exception:
         return Response(content="Invalid JSON", status_code=status.HTTP_400_BAD_REQUEST)
 
-    try:
-        entry = body.get("entry", [])[0]
-        changes = entry.get("changes", [])[0]
-        value = changes.get("value", {})
-        metadata = value.get("metadata", {})
-        messages = value.get("messages", [])
-        contacts = value.get("contacts", [])
+    outcome = "success"
+    for entry in body.get("entry") or []:
+        for change in entry.get("changes") or []:
+            field = change.get("field") or "messages"
+            value = change.get("value") or {}
+            try:
+                if field == "message_template_status_update":
+                    await apply_status_update(database, entry.get("id"), value)
+                elif field == "messages":
+                    outcome = await _handle_messages_change(database, background_tasks, value, request_id)
+            except Exception as e:
+                # Always ACK Meta; a failure here must not make Meta retry every other change.
+                logger.exception(f"[{request_id}] Webhook change '{field}' failed: {e}")
+    return {"status": outcome}
 
-        inbound_phone_id = metadata.get("phone_number_id")
-        display_number = metadata.get("display_phone_number")
-        customer_name = (contacts[0].get("profile", {}).get("name", "") if contacts else "")
-    except (IndexError, AttributeError, KeyError) as e:
-        logger.error(f"[{request_id}] Error parsing webhook payload: {e}")
-        return {"status": "success"}  # always ACK Meta
 
-    # ---- 2. Resolve tenant ----
+async def _handle_receipts(database, statuses) -> None:
+    """Delivery and read receipts for messages we sent: the inbox ticks, and campaign totals."""
+    for receipt in statuses:
+        wamid = receipt.get("id")
+        state = receipt.get("status")
+        timestamp = receipt.get("timestamp")
+        error = (receipt.get("errors") or [None])[0]
+        if not (wamid and state):
+            continue
+        await message_service.handle_status_webhook(
+            wamid=wamid,
+            status=state,
+            timestamp=int(timestamp) if timestamp else None,
+            error=error,
+        )
+        await record_receipt(database, wamid, state, error)
+
+
+async def _handle_messages_change(database, background_tasks: BackgroundTasks, value: Dict[str, Any], request_id: str) -> str:
+    metadata = value.get("metadata") or {}
+    messages = value.get("messages") or []
+    contacts = value.get("contacts") or []
+    inbound_phone_id = metadata.get("phone_number_id")
+    display_number = metadata.get("display_phone_number")
+    customer_name = (contacts[0].get("profile", {}).get("name", "") if contacts else "")
+
+    statuses = value.get("statuses") or []
+    if statuses:
+        background_tasks.add_task(_handle_receipts, database, statuses)
+
+    # Receipts have no "messages" key.
+    if not messages:
+        return "success"
+
     # Route only by the number the message was sent to. Never guess a business:
     # answering as the wrong one would put a customer's message in another owner's inbox.
     tenant = None
@@ -398,31 +437,22 @@ async def receive_meta_webhook(
             f"[{request_id}] No business is connected to phone_number_id={inbound_phone_id} "
             f"(display_number={display_number}). Message not answered."
         )
-        return {"status": "no_tenant_matched"}
-
-    if not tenant:
-        logger.warning(f"[{request_id}] No tenant configured in database for inbound WhatsApp message.")
-        return {"status": "no_tenant_configured"}
+        return "no_tenant_matched"
 
     tenant_id = tenant.get("tenant_id", "default_tenant")
     tenant_token, tenant_phone_id = resolve_tenant_whatsapp_credentials(tenant)
-
-    # Status updates (delivered/read receipts) have no "messages" key — ignore.
-    if not messages:
-        return {"status": "success"}
 
     msg = messages[0]
     sender_phone = msg.get("from")
     msg_type = msg.get("type")
     message_id = msg.get("id")  # wamid
 
-    # ---- LOG: every inbound webhook hit ----
     logger.info(
         f"[{request_id}] [webhook] received msg_id={message_id} from={sender_phone} "
         f"type={msg_type} tenant={tenant_id}"
     )
 
-    # ---- 3. DEDUP GATE (atomic — must run before we do any work) ----
+    # ---- DEDUP GATE (atomic — must run before we do any work) ----
     if message_id:
         try:
             await database["processed_messages"].insert_one(
@@ -439,9 +469,17 @@ async def receive_meta_webhook(
                 f"[{request_id}] [dedup] Dropped duplicate webhook: msg_id={message_id} "
                 f"from={sender_phone} tenant={tenant_id}"
             )
-            return {"status": "duplicate_ignored"}
+            return "duplicate_ignored"
 
-    # ---- 4. Dispatch (never block the ACK) ----
+    # ---- Dispatch (never block the ACK) ----
+    text_payload: Optional[str] = None
+    if msg_type == "text":
+        text_payload = msg.get("text", {}).get("body", "")
+    elif msg_type == "button":
+        # A quick-reply button on a template, e.g. "Stop promotions".
+        button = msg.get("button") or {}
+        text_payload = button.get("text") or button.get("payload")
+
     if msg_type == "document":
         doc_meta = msg.get("document", {})
         mime_type = doc_meta.get("mime_type", "")
@@ -460,20 +498,20 @@ async def receive_meta_webhook(
                 request_id=request_id,
             )
 
-    elif msg_type == "text":
-        user_payload = msg.get("text", {}).get("body", "")
-        if user_payload and sender_phone:
+    elif text_payload is not None:
+        if text_payload and sender_phone:
             background_tasks.add_task(
                 handle_text_turn,
                 database=database,
                 tenant=tenant,
                 tenant_id=tenant_id,
                 sender_phone=sender_phone,
-                user_payload=user_payload,
+                user_payload=text_payload,
                 tenant_token=tenant_token,
                 tenant_phone_id=tenant_phone_id,
                 request_id=request_id,
                 customer_name=customer_name,
+                wamid=message_id,
             )
 
     elif msg_type == "interactive":
@@ -509,8 +547,7 @@ async def receive_meta_webhook(
                 customer_name=customer_name,
             )
 
-    # ---- 5. ACK in milliseconds ----
-    return {"status": "success"}
+    return "success"
 
 
 # ---------------------------------------------------------------------------
@@ -535,20 +572,7 @@ async def whatsapp_status_webhook(
         value = changes.get("value", {})
         statuses = value.get("statuses", [])
         
-        for status_update in statuses:
-            wamid = status_update.get("id")
-            status = status_update.get("status")
-            timestamp = status_update.get("timestamp")
-            error = status_update.get("errors", [{}])[0] if status_update.get("errors") else None
-            
-            if wamid and status:
-                await message_service.handle_status_webhook(
-                    wamid=wamid,
-                    status=status,
-                    timestamp=int(timestamp) if timestamp else None,
-                    error=error,
-                )
-        
+        await _handle_receipts(database, statuses)
         return {"status": "success"}
         
     except Exception as e:

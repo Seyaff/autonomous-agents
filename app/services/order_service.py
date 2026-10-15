@@ -160,8 +160,9 @@ async def notify_customer_status(
 ) -> bool:
     """Sends the customer a status update when Meta allows it. Returns whether it was sent.
 
-    Outside the 24h window nothing is sent (a template would be needed), and
-    the caller gets False so it can say so honestly.
+    Outside the 24h window only an approved template can go. If the business has set up
+    its order-update template, that is sent; otherwise nothing is, and the caller gets
+    False so it can say so honestly.
     """
     text = status_notice(order, new_status)
     if not text:
@@ -173,8 +174,7 @@ async def notify_customer_status(
         return False
 
     if not await customer_in_service_window(db, tenant_id, phone):
-        logger.info(f"Order {order.get('order_id')} status not sent: outside 24h window for {phone}")
-        return False
+        return await _notify_with_template(db, tenant, order, new_status)
 
     token, phone_number_id = resolve_tenant_whatsapp_credentials(tenant)
     result = await send_text(
@@ -208,6 +208,44 @@ async def notify_customer_status(
                 sender="system",
             )
     return sent
+
+
+async def _notify_with_template(db, tenant: Dict[str, Any], order: Dict[str, Any], new_status: str) -> bool:
+    """The update outside the 24h window, through the business's order-update template."""
+    from services.templates import order_update_phrase, order_update_template, send_template_message, sendable
+
+    order_id = order.get("order_id", "")
+    phrase = order_update_phrase(order, new_status)
+    doc = await order_update_template(db, tenant)
+    ok, why = sendable(doc)
+    if not phrase or not ok:
+        logger.info(f"Order {order_id} status not sent: outside 24h window and no approved update template ({why})")
+        return False
+
+    params = [
+        (order.get("customer_name") or "there").split(" ")[0],
+        order_id,
+        tenant.get("business_name") or "us",
+        phrase,
+    ]
+    try:
+        result, _ = await send_template_message(db, tenant, order["customer_phone"], doc, params, sender="system")
+    except ValueError as e:
+        logger.warning(f"Order {order_id} update template not sent: {e}")
+        return False
+    if not result.ok:
+        from services.alerts import raise_alert
+
+        await raise_alert(
+            db,
+            tenant["tenant_id"],
+            kind="status_update_not_sent",
+            title=f"Order {order_id} update wasn't sent",
+            detail=f"The customer wasn't told it is now {new_status}. {result.error_message or ''}".strip(),
+            severity="critical" if result.auth_error else "warning",
+            ref={"order_id": order_id},
+        )
+    return result.ok
 
 
 def parse_range_bound(value: str, tz_name: str) -> datetime:

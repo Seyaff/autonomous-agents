@@ -119,6 +119,8 @@ export function useThread(conversationId: string | null) {
     toggleTakeover,
     resolveEscalation,
     isSending: USE_MOCKS ? false : realSend.isPending,
+    // Mock threads never expire. A real one closes 24 hours after the customer last wrote.
+    replyWindowOpen: USE_MOCKS ? true : real.data?.reply_window_open ?? true,
     isTakeoverPending: USE_MOCKS ? false : realTakeover.takeOver.isPending || realTakeover.handBack.isPending,
   }
 }

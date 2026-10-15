@@ -11,8 +11,11 @@ from services.message_service import message_service
 from services.conversation_state import broadcast_conversation_updated
 from schemas.inbox import (
     SendMessageRequest,
+    SendTemplateRequest,
     UpdateConversationRequest,
 )
+from services.order_service import customer_in_service_window
+from services.templates import find_template, send_template_message
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +67,10 @@ async def get_conversation_detail(
     before_id: Optional[str] = None,
     limit: int = Query(50, ge=1, le=100),
     current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
 ):
-    """Returns conversation metadata plus a page of its messages (oldest->newest)."""
+    """Returns conversation metadata plus a page of its messages (oldest->newest),
+    and whether a free-form reply can still be sent (Meta's 24-hour window)."""
     tenant_id = current_user["active_tenant_id"]
     conversation = await _get_owned_conversation(conversation_id, tenant_id)
     messages_page = await inbox_repo.get_messages(
@@ -75,6 +80,7 @@ async def get_conversation_detail(
         "conversation": conversation,
         "messages": messages_page["messages"],
         "has_more": messages_page["has_more"],
+        "reply_window_open": await customer_in_service_window(db, tenant_id, conversation["customer_phone"]),
     }
 
 
@@ -161,6 +167,12 @@ async def send_message(
     tenant_id = current_user["active_tenant_id"]
     conversation = await _get_owned_conversation(conversation_id, tenant_id)
 
+    if not await customer_in_service_window(db, tenant_id, conversation["customer_phone"]):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="It's been more than 24 hours since this customer wrote. WhatsApp only allows a template now.",
+        )
+
     if conversation.get("handled_by") != "owner":
         await _change_handover(conversation_id, tenant_id, "owner", current_user["user_id"])
 
@@ -186,7 +198,7 @@ async def send_message(
     if message:
         await message_service.update_outbound_status(
             message_id=message.message_id,
-            wamid="pending",
+            wamid=result.message_id or "",
             status="sent" if sent else "failed",
         )
     if not sent:
@@ -201,3 +213,39 @@ async def send_message(
         )
 
     return {"status": "success" if sent else "failed", "message": message}
+
+
+@inbox_router.post("/conversations/{conversation_id}/template")
+async def send_template_to_conversation(
+    conversation_id: str,
+    payload: SendTemplateRequest,
+    current_user: dict = Depends(require_owner),
+    db=Depends(get_database),
+):
+    """Sends an approved template, the only way to reach a customer more than 24 hours
+    after they last wrote. Like a reply, it takes the chat over from the agent."""
+    tenant_id = current_user["active_tenant_id"]
+    conversation = await _get_owned_conversation(conversation_id, tenant_id)
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id})
+    doc = await find_template(db, tenant_id, payload.name, payload.language)
+
+    try:
+        result, message = await send_template_message(
+            db, tenant, conversation["customer_phone"], doc, payload.body_params, payload.header_params, sender="human"
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    if conversation.get("handled_by") != "owner":
+        await _change_handover(conversation_id, tenant_id, "owner", current_user["user_id"])
+    if not result.ok:
+        await raise_alert(
+            db,
+            tenant_id,
+            kind="owner_message_not_sent",
+            title="Your template wasn't delivered",
+            detail=f"{conversation['customer_phone']}: {result.error_message or 'WhatsApp did not accept it.'}",
+            severity="critical" if result.auth_error else "warning",
+            ref={"conversation_id": conversation_id},
+        )
+    return {"status": "success" if result.ok else "failed", "message": message, "error": None if result.ok else result.error_message}

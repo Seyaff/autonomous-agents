@@ -101,6 +101,10 @@ async def ensure_webhook_indexes():
     await migrate_subscriptions(db)
     from services.alerts import ensure_alert_indexes
     await ensure_alert_indexes(db)
+    from services.templates import ensure_template_indexes
+    await ensure_template_indexes(db)
+    from services.campaigns import ensure_campaign_indexes
+    await ensure_campaign_indexes(db)
     from services.menu_jobs import ensure_menu_job_indexes
     await ensure_menu_job_indexes(db)
     print("[memory] customer_facts indexes ensured.")
