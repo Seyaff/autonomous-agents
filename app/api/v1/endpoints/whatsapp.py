@@ -28,6 +28,7 @@ from services.billing import agent_allowed
 from services.message_service import message_service
 from services.conversation_state import conversation_blocks_agent, is_escalated
 from services.campaigns import handle_marketing_keywords, record_receipt
+from services.channels import channel_of, send_text_to
 from services.templates import apply_status_update
 
 logger = logging.getLogger(__name__)
@@ -123,7 +124,8 @@ async def _send_paused_notice(database, tenant_id: str, customer_phone: str, tok
     last = (conversation or {}).get("paused_notice_at")
     if last and now - (last if last.tzinfo else last.replace(tzinfo=timezone.utc)) < PAUSED_NOTICE_EVERY:
         return
-    await send_text(to_phone=customer_phone, text=PAUSED_NOTICE, token=token, phone_number_id=phone_id)
+    tenant = await database["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+    await send_text_to(tenant, customer_phone, PAUSED_NOTICE, database)
     await database["conversations"].update_one(
         {"tenant_id": tenant_id, "customer_phone": customer_phone}, {"$set": {"paused_notice_at": now}}
     )
@@ -157,7 +159,7 @@ async def handle_voice_turn(
         transcript = ""
 
     if not transcript:
-        await send_text(to_phone=sender_phone, text=VOICE_FALLBACK, token=tenant_token, phone_number_id=tenant_phone_id)
+        await send_text_to(tenant, sender_phone, VOICE_FALLBACK, database)
         return
 
     logger.info(f"[{request_id}] Voice note from [{sender_phone}] transcribed: {transcript[:120]}")
@@ -185,8 +187,9 @@ async def handle_text_turn(
     request_id: str = "bg",
     customer_name: str = "",
     wamid: Optional[str] = None,
+    customer_username: Optional[str] = None,
 ):
-    """Background task for an inbound text message."""
+    """Background task for an inbound text message, from WhatsApp or Instagram."""
     try:
         logger.info(
             f"[{request_id}] Incoming message from [{sender_phone}] for tenant [{tenant_id}]: {user_payload}"
@@ -200,10 +203,13 @@ async def handle_text_turn(
             message_type="text",
             wamid=wamid or request_id,
             customer_name=customer_name,
+            customer_username=customer_username,
         )
 
         # STOP and START control promotional messages. They're answered here, not by the agent.
-        keyword_reply = await handle_marketing_keywords(database, tenant, sender_phone, user_payload)
+        keyword_reply = None
+        if channel_of(sender_phone) == "whatsapp":
+            keyword_reply = await handle_marketing_keywords(database, tenant, sender_phone, user_payload)
         if keyword_reply:
             await _send_and_record(database, tenant_id, sender_phone, keyword_reply, tenant_token, tenant_phone_id, sender="system")
             return
@@ -269,7 +275,8 @@ async def _send_and_record(database, tenant_id: str, sender_phone: str, text: st
         message_type="text",
         sender=sender,
     )
-    result = await send_text(to_phone=sender_phone, text=text, token=token, phone_number_id=phone_id)
+    tenant = await database["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+    result = await send_text_to(tenant, sender_phone, text, database)
     if message:
         await message_service.update_outbound_status(
             message_id=message.message_id,
@@ -281,8 +288,21 @@ async def _send_and_record(database, tenant_id: str, sender_phone: str, text: st
 
 
 async def _report_send_failure(database, tenant_id: str, sender_phone: str, result, what: str) -> None:
-    """A WhatsApp send failed. If the token is the problem, the business is marked disconnected too."""
-    if result.auth_error:
+    """A send failed. If the token is the problem, the channel is marked disconnected too."""
+    if result.auth_error and channel_of(sender_phone) == "instagram":
+        await database["tenants"].update_one(
+            {"tenant_id": tenant_id},
+            {"$set": {"instagram_status": "error", "instagram_last_error": result.error_message or "Instagram rejected the token"}},
+        )
+        await raise_alert(
+            database,
+            tenant_id,
+            kind="instagram_disconnected",
+            title="Instagram is disconnected",
+            detail="Instagram customers aren't getting replies. Reconnect Instagram in Settings.",
+            severity="critical",
+        )
+    elif result.auth_error:
         await database["tenants"].update_one(
             {"tenant_id": tenant_id},
             {"$set": {

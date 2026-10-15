@@ -19,6 +19,7 @@ from api.v1.endpoints.health import router as health_router
 from api.v1.endpoints.payments import payments_router
 from api.v1.endpoints.templates import templates_router, campaigns_router
 from api.v1.endpoints.forms import forms_router
+from api.v1.endpoints.instagram import instagram_router
 
 
 v1_router = APIRouter()
@@ -44,3 +45,4 @@ v1_router.include_router(payments_router)
 v1_router.include_router(templates_router)
 v1_router.include_router(campaigns_router)
 v1_router.include_router(forms_router)
+v1_router.include_router(instagram_router)

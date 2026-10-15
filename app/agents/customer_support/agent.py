@@ -32,6 +32,7 @@ from agents.customer_support.tools import (
     send_form,
 )
 from services.forms import published_forms
+from services.channels import channel_of
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -200,7 +201,12 @@ async def run_agent_turn(
             forms = await published_forms(db, tenant_id)
         except Exception:
             forms = []  # a forms read failure must not stop the reply
-        system_prompt = compile_customer_support_prompt({**tenant, "sold_out": sold_out, "forms": forms}, customer_context)
+        channel = channel_of(customer_phone)
+        if channel != "whatsapp":
+            forms = []  # forms are WhatsApp Flows
+        system_prompt = compile_customer_support_prompt(
+            {**tenant, "sold_out": sold_out, "forms": forms}, customer_context, channel=channel
+        )
         messages: List[BaseMessage] = [
             SystemMessage(content=system_prompt),
             *window,
@@ -212,9 +218,10 @@ async def run_agent_turn(
                 "tenant_id": tenant_id,
                 "customer_phone": customer_phone,
                 "test_mode": test_mode,
+                "channel": channel,
             },
             "run_name": f"{'test-chat' if test_mode else 'whatsapp-turn'}-{customer_phone}",
-            "tags": [tenant_id, "test" if test_mode else "whatsapp"],
+            "tags": [tenant_id, "test" if test_mode else channel],
             "metadata": {"tenant_id": tenant_id, "customer_phone": customer_phone},
         }
 

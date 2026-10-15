@@ -3,7 +3,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from core.database import get_database
-from core.whatsapp_utils import resolve_tenant_whatsapp_credentials, send_text
+from services.channels import channel_of, send_text_to
 from services.alerts import raise_alert
 from middlewares.auth_middleware import require_owner
 from repositories.inbox_repo import inbox_repo
@@ -170,14 +170,17 @@ async def send_message(
     if not await customer_in_service_window(db, tenant_id, conversation["customer_phone"]):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="It's been more than 24 hours since this customer wrote. WhatsApp only allows a template now.",
+            detail=(
+                "It's been more than 24 hours since this customer wrote. Instagram only allows a reply after they write again."
+                if channel_of(conversation["customer_phone"]) == "instagram"
+                else "It's been more than 24 hours since this customer wrote. WhatsApp only allows a template now."
+            ),
         )
 
     if conversation.get("handled_by") != "owner":
         await _change_handover(conversation_id, tenant_id, "owner", current_user["user_id"])
 
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id})
-    token, phone_number_id = resolve_tenant_whatsapp_credentials(tenant)
 
     message = await message_service.persist_outbound(
         conversation_id=conversation_id,
@@ -187,12 +190,7 @@ async def send_message(
         sender="human",
     )
 
-    result = await send_text(
-        to_phone=conversation["customer_phone"],
-        text=payload.content,
-        token=token,
-        phone_number_id=phone_number_id,
-    )
+    result = await send_text_to(tenant, conversation["customer_phone"], payload.content, db)
     sent = result.ok
 
     if message:
@@ -207,7 +205,7 @@ async def send_message(
             tenant_id,
             kind="owner_message_not_sent",
             title="Your reply wasn't delivered",
-            detail=f"{conversation['customer_phone']}: {result.error_message or 'WhatsApp did not accept it.'}",
+            detail=f"{conversation['customer_phone']}: {result.error_message or 'The message was not accepted.'}",
             severity="critical" if result.auth_error else "warning",
             ref={"conversation_id": conversation_id},
         )
@@ -226,6 +224,8 @@ async def send_template_to_conversation(
     after they last wrote. Like a reply, it takes the chat over from the agent."""
     tenant_id = current_user["active_tenant_id"]
     conversation = await _get_owned_conversation(conversation_id, tenant_id)
+    if channel_of(conversation["customer_phone"]) != "whatsapp":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Templates are a WhatsApp feature. Instagram customers can't get one.")
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id})
     doc = await find_template(db, tenant_id, payload.name, payload.language)
 

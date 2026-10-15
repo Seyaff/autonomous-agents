@@ -100,7 +100,9 @@ class Cursor:
 
 
 class FakeCollection:
-    def __init__(self, docs: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, docs: Optional[List[Dict[str, Any]]] = None, unique: Optional[List[str]] = None):
+        # Fields with a unique index: inserting a duplicate raises, as Mongo does.
+        self.unique = unique or []
         self.docs: List[Dict[str, Any]] = []
         for d in docs or []:
             d = copy.deepcopy(d)
@@ -128,6 +130,11 @@ class FakeCollection:
         return Cursor([copy.deepcopy(d) for d in self.docs if matches(d, query)])
 
     async def insert_one(self, doc):
+        from pymongo.errors import DuplicateKeyError
+
+        for field in self.unique:
+            if any(_get(d, field) == _get(doc, field) for d in self.docs):
+                raise DuplicateKeyError(f"duplicate {field}")
         doc.setdefault("_id", next(_ids))
         self.docs.append(copy.deepcopy(doc))
         return Result(inserted_id=doc["_id"])

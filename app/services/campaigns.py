@@ -123,6 +123,8 @@ async def resolve_audience(db, tenant_id: str, audience: Audience) -> Tuple[List
         {"tenant_id": tenant_id}, {"customer_phone": 1, "customer_name": 1, "channel": 1}
     ).to_list(length=100000)
     for c in conversations:
+        if (c.get("customer_phone") or "").startswith("ig:"):
+            continue  # campaigns are WhatsApp templates
         phone = normalize_phone(c.get("customer_phone") or "")
         if phone and (c.get("channel") or "whatsapp") == "whatsapp":
             names.setdefault(phone, c.get("customer_name") or "")
@@ -137,6 +139,8 @@ async def resolve_audience(db, tenant_id: str, audience: Audience) -> Tuple[List
         ).to_list(length=100000)
         wanted = []
         for o in orders:
+            if (o.get("customer_phone") or "").startswith("ig:"):
+                continue  # campaigns are WhatsApp templates
             phone = normalize_phone(o.get("customer_phone") or "")
             if phone and phone not in wanted:
                 wanted.append(phone)

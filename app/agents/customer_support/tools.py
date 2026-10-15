@@ -76,6 +76,7 @@ async def create_order_tool(
     payment_method: str = "cod",
     customer_notes: Optional[str] = None,
     customer_name: Optional[str] = None,
+    contact_phone: Optional[str] = None,
     config: RunnableConfig = None
 ) -> str:
     """Saves a customer's order or booking as a draft and sends them a summary to confirm.
@@ -91,6 +92,7 @@ async def create_order_tool(
         payment_method: Payment method chosen by customer ('cod', 'card', 'cash'). Default is 'cod'.
         customer_notes: Optional special instructions.
         customer_name: The customer's name. Required.
+        contact_phone: A phone number the customer gave. Needed for delivery when they wrote on Instagram.
     """
     configurable = config.get("configurable", {}) if config else {}
     tenant_id = configurable.get("tenant_id", "default_tenant")
@@ -139,6 +141,8 @@ async def create_order_tool(
 
         if order_type == "delivery" and not (delivery_address or "").strip():
             return "Ask the customer for the delivery address first."
+        if configurable.get("channel") == "instagram" and order_type == "delivery" and not (contact_phone or "").strip():
+            return "Ask the customer for a phone number for the delivery first. You don't have it on Instagram."
 
         formatted_items = price_items(items, await catalog_prices(db, tenant_id))
         if not formatted_items:
@@ -206,6 +210,8 @@ async def create_order_tool(
             "eta_minutes": eta_minutes,
             "payment_method": payment_method,
             "customer_notes": customer_notes,
+            "contact_phone": (contact_phone or "").strip() or None,
+            "channel": configurable.get("channel") or "whatsapp",
             # Not placed until the customer taps Confirm.
             "status": AWAITING,
             "status_history": [initial_status_entry(now, by="agent")],

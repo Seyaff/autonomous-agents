@@ -6,6 +6,8 @@ from core.setup_state import AgentSettings, ORDER_TYPE_LABELS, hours_status, nor
 
 logger = logging.getLogger(__name__)
 
+CHANNEL_NAMES = {"whatsapp": "WhatsApp", "instagram": "Instagram"}
+
 DAY_NAMES = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"}
 
 LANGUAGE_MATCH = """DEFAULT LANGUAGE: Roman Urdu (Urdu written in English letters). This is how 90% of Pakistani customers text.
@@ -185,6 +187,18 @@ def _forms_block(tenant_info: Dict[str, Any]) -> str:
     )
 
 
+def _instagram_block(channel: str) -> str:
+    if channel != "instagram":
+        return ""
+    return (
+        "\nINSTAGRAM:\n"
+        "   - This customer wrote on Instagram, so you don't have their phone number. Before placing a delivery\n"
+        "     order, or anything the business may need to call about, ask for one and pass it to\n"
+        "     `create_order_tool` as `contact_phone`.\n"
+        "   - Forms don't work on Instagram. Ask the questions in chat.\n"
+    )
+
+
 def _orders_block(order_types: List[str]) -> str:
     """How to take an order, written for the ways this business actually sells."""
     types = order_types or ["delivery"]
@@ -218,6 +232,7 @@ def compile_customer_support_prompt(
     tenant_info: Dict[str, Any],
     customer_context: str = "",
     now: Optional[datetime] = None,
+    channel: str = "whatsapp",
 ) -> str:
     """Compiles the customer-facing system prompt from the business's own description and settings."""
     business_name = tenant_info.get("business_name") or tenant_info.get("name") or "our business"
@@ -248,7 +263,7 @@ def compile_customer_support_prompt(
         profile.append(f"- Delivery fee: {currency} {delivery_fee:.2f}")
     profile.append(f"- Usual time to get an order ready: ~{prep_time} minutes")
 
-    prompt = f"""You are the customer-facing agent for "{business_name}", talking to customers on WhatsApp.
+    prompt = f"""You are the customer-facing agent for "{business_name}", talking to customers on {CHANNEL_NAMES.get(channel, "WhatsApp")}.
 You work for this business. Your job: answer questions about it, help customers choose, take orders and bookings,
 and pass anything you can't handle to the owner. Work it out yourself from what the business is and what it sells.
 
@@ -297,7 +312,7 @@ NEW CHAT GREETING: when a customer starts a new chat, you may open with: "{_gree
 VOICE NOTES:
    - A message starting with "[voice note]" is the customer's speech, transcribed. Transcripts can have mistakes.
    - If a name, address, quantity or item is unclear, ask them to repeat it or type it. Never guess these.
-
+{_instagram_block(channel)}
 {_escalation_block(agent, currency)}
 
 ==================== END ====================

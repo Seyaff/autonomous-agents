@@ -49,6 +49,9 @@ class Conversation(BaseModel):
     customer_phone: str
     customer_name: str = ""
     customer_avatar: Optional[str] = None
+    # "whatsapp", or "instagram" when customer_phone is "ig:<IGSID>".
+    channel: Literal["whatsapp", "instagram"] = "whatsapp"
+    customer_username: Optional[str] = None
     status: Literal["open", "closed", "archived"] = "open"
     last_message: Optional[MessagePreview] = None
     unread_count: int = 0

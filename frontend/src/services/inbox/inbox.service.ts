@@ -14,6 +14,9 @@ export interface Conversation {
   customer_phone: string
   customer_name: string
   customer_avatar?: string | null
+  /** Where the customer wrote from. Instagram customers have customer_phone "ig:<id>". */
+  channel?: "whatsapp" | "instagram"
+  customer_username?: string | null
   status: "open" | "closed" | "archived"
   last_message: MessagePreview | null
   unread_count: number

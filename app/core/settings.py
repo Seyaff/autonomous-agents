@@ -121,6 +121,13 @@ class Settings(BaseSettings):
     META_APP_ID: str = Field(default="", validation_alias=AliasChoices("APP_ID", "META_APP_ID"))
     META_APP_SECRET: str = Field(default="", validation_alias=AliasChoices("APP_SECRET", "META_APP_SECRET"))
 
+    # Instagram (Instagram API with Instagram Login). The app id and secret are the Instagram
+    # app's own, shown under "Instagram > API setup with Instagram login" in the Meta app.
+    INSTAGRAM_APP_ID: str = ""
+    INSTAGRAM_APP_SECRET: str = ""
+    # Verify token for the Instagram webhook. Empty uses the WhatsApp one.
+    INSTAGRAM_VERIFY_TOKEN: str = ""
+
     # Accepts either REDIS_URI or REDIS_URL from env
     REDIS_URI: str = Field(
         validation_alias=AliasChoices("REDIS_URI", "REDIS_URL"),

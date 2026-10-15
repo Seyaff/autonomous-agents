@@ -39,6 +39,7 @@ class MessageService:
         wamid: Optional[str] = None,
         customer_name: str = "",
         customer_avatar: Optional[str] = None,
+        customer_username: Optional[str] = None,
     ) -> Optional[Message]:
         """Persist inbound customer message and broadcast to owner dashboard."""
         try:
@@ -47,6 +48,7 @@ class MessageService:
                 tenant_id=tenant_id,
                 customer_phone=sender_phone,
                 customer_name=customer_name,
+                customer_username=customer_username,
             )
 
             # 2. Create message
@@ -355,6 +357,8 @@ class MessageService:
             "customer_phone": conversation.customer_phone,
             "customer_name": conversation.customer_name,
             "customer_avatar": conversation.customer_avatar,
+            "channel": conversation.channel,
+            "customer_username": conversation.customer_username,
             "status": conversation.status,
             "last_message": {
                 "content": conversation.last_message.content,

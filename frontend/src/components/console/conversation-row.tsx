@@ -1,6 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
+import { contactLabel, isInstagram } from "@/lib/channel"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { StatusChip, type ChipTone } from "@/components/console/status-chip"
 import type { MockConversation } from "@/lib/mock/conversations"
@@ -60,7 +61,10 @@ export function ConversationRow({
       </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">{conversation.customer_name}</span>
+          <span className="truncate text-sm font-medium">{conversation.customer_name || contactLabel(conversation)}</span>
+          {isInstagram(conversation) && (
+            <span className="shrink-0 rounded-[4px] bg-muted px-1 font-mono text-[9px] text-muted-foreground">IG</span>
+          )}
           <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
             {relativeTime(conversation.last_activity_at)}
           </span>

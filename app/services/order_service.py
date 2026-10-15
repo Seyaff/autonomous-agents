@@ -174,15 +174,14 @@ async def notify_customer_status(
         return False
 
     if not await customer_in_service_window(db, tenant_id, phone):
+        # Templates exist only on WhatsApp. Instagram has no way past its 24-hour window.
+        if phone.startswith("ig:"):
+            return False
         return await _notify_with_template(db, tenant, order, new_status)
 
-    token, phone_number_id = resolve_tenant_whatsapp_credentials(tenant)
-    result = await send_text(
-        to_phone=phone,
-        text=text,
-        token=token,
-        phone_number_id=phone_number_id,
-    )
+    from services.channels import send_text_to
+
+    result = await send_text_to(tenant, phone, text, db)
     sent = result.ok
     if not sent:
         from services.alerts import raise_alert

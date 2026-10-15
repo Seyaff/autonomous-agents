@@ -23,6 +23,7 @@ class InboxRepository:
         customer_phone: str,
         customer_name: str = "",
         customer_avatar: Optional[str] = None,
+        customer_username: Optional[str] = None,
     ) -> Conversation:
         db = get_database()
         conversation_id = f"conv_{tenant_id}_{customer_phone}"
@@ -35,6 +36,8 @@ class InboxRepository:
                 update_fields["customer_name"] = customer_name
             if customer_avatar and not existing.get("customer_avatar"):
                 update_fields["customer_avatar"] = customer_avatar
+            if customer_username and not existing.get("customer_username"):
+                update_fields["customer_username"] = customer_username
             await db[CONVERSATIONS].update_one(
                 {"conversation_id": conversation_id}, {"$set": update_fields}
             )
@@ -48,6 +51,8 @@ class InboxRepository:
             "customer_phone": customer_phone,
             "customer_name": customer_name,
             "customer_avatar": customer_avatar,
+            "channel": "instagram" if customer_phone.startswith("ig:") else "whatsapp",
+            "customer_username": customer_username,
             "status": "open",
             "last_message": None,
             "unread_count": 0,
