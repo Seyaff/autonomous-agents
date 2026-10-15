@@ -141,12 +141,12 @@ def _escalation_block(agent: AgentSettings, currency: str) -> str:
         triggers.append(f"an order over {currency} {rules.large_order_over:.0f}")
 
     if not triggers:
-        return ("4. ESCALATION:\n"
+        return ("5. ESCALATION:\n"
                 "   - No automatic escalation is set. If you can't help, say so honestly and that you'll ask the business to follow up,\n"
                 "     but don't call `escalate_to_owner` unless the customer asks for a person.")
 
     return (
-        "4. ESCALATION:\n"
+        "5. ESCALATION:\n"
         f"   - When the customer has {', or '.join(triggers)} → ALWAYS call `escalate_to_owner`\n"
         "     with the reason and a one-line summary for the owner (e.g. \"Wants refund for a\n"
         "     damaged item, ORD-6A21\"). Don't promise a refund or compensation yourself.\n"
@@ -166,6 +166,22 @@ def _sold_out_block(tenant_info: Dict[str, Any]) -> str:
         f"- Not available: {', '.join(sold_out)}\n"
         "- Don't offer these, and don't place an order with them. If the customer asks, say they're not available right now.\n"
         "============================================================"
+    )
+
+
+def _forms_block(tenant_info: Dict[str, Any]) -> str:
+    """The owner's published forms, and when each one is meant to be used."""
+    forms = tenant_info.get("forms") or []
+    if not forms:
+        return ""
+    lines = "\n".join(f'   - "{f["name"]}": {f.get("purpose") or "no note from the owner"}' for f in forms)
+    return (
+        "4. FORMS:\n"
+        "   - The owner made these forms. When one fits what the customer needs, send it with `send_form`\n"
+        "     instead of asking each question in chat. Send a form at most once per request.\n"
+        f"{lines}\n"
+        "   - A message starting with \"[form submitted: ...]\" holds the customer's answers. Use them: confirm what\n"
+        "     you understood, then carry on (place the order or booking, or pass it to the owner).\n"
     )
 
 
@@ -277,6 +293,7 @@ NEW CHAT GREETING: when a customer starts a new chat, you may open with: "{_gree
    - Cancel → `cancel_order_tool` (confirm clearly, don't over-apologize)
      Example: "ok, cancel kr diya. kuch aur chahiye tha?"
 
+{_forms_block(tenant_info)}
 VOICE NOTES:
    - A message starting with "[voice note]" is the customer's speech, transcribed. Transcripts can have mistakes.
    - If a name, address, quantity or item is unclear, ask them to repeat it or type it. Never guess these.

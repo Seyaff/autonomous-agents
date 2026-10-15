@@ -476,3 +476,41 @@ async def escalate_to_owner(
             ref={"customer_phone": customer_phone},
         )
         return "Could not escalate right now. Apologise and ask the customer to wait."
+
+
+@tool
+async def send_form(form_name: str, message: Optional[str] = None, config: RunnableConfig = None) -> str:
+    """Sends the customer one of the business's forms (listed under FORMS in your instructions).
+    The customer fills it in inside WhatsApp, and their answers come back to you as a message
+    starting with "[form submitted: ...]".
+
+    Args:
+        form_name: The form's name, exactly as listed.
+        message: Optional short line shown with the form's button, in the customer's language.
+    """
+    from services.forms import find_published, send_form_to
+
+    configurable = config.get("configurable", {}) if config else {}
+    tenant_id = configurable.get("tenant_id")
+    customer_phone = configurable.get("customer_phone")
+    if not tenant_id or not customer_phone:
+        return "Could not send the form: missing conversation context."
+    if configurable.get("channel", "whatsapp") != "whatsapp":
+        return "Forms only work on WhatsApp. Ask the questions in chat instead."
+
+    db = get_database()
+    doc = await find_published(db, tenant_id, form_name)
+    if not doc:
+        return f"There's no published form called '{form_name}'. Ask the questions in chat instead."
+    if configurable.get("test_mode"):
+        return f"TEST: the form '{doc['name']}' would be sent now. Nothing was sent."
+
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+    result = await send_form_to(db, tenant, customer_phone, doc, message)
+    if not result.ok:
+        logger.warning(f"Form {doc['form_id']} not sent to {customer_phone}: {result.error_message}")
+        return "The form could not be sent. Ask the questions in chat instead."
+    return (
+        f"The form '{doc['name']}' was sent. Tell the customer in one short line to tap the button and fill it in. "
+        "Don't ask the same questions in chat while they do."
+    )

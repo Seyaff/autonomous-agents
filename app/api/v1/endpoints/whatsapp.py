@@ -311,6 +311,41 @@ async def _report_send_failure(database, tenant_id: str, sender_phone: str, resu
         )
 
 
+async def handle_form_reply(
+    database,
+    tenant: Dict[str, Any],
+    tenant_id: str,
+    sender_phone: str,
+    response_json: str,
+    tenant_token: Optional[str],
+    tenant_phone_id: Optional[str],
+    request_id: str = "bg",
+    customer_name: str = "",
+    wamid: Optional[str] = None,
+):
+    """A submitted form: the answers are saved for the owner, then handed to the agent as a message."""
+    from services.forms import record_response, response_message
+
+    try:
+        response = await record_response(database, tenant_id, sender_phone, response_json, wamid)
+    except Exception as e:
+        logger.exception(f"[{request_id}] Form answers from {sender_phone} not saved: {e}")
+        response = None
+    text = response_message(response) if response else "[form submitted] (the answers couldn't be read)"
+    await handle_text_turn(
+        database=database,
+        tenant=tenant,
+        tenant_id=tenant_id,
+        sender_phone=sender_phone,
+        user_payload=text,
+        tenant_token=tenant_token,
+        tenant_phone_id=tenant_phone_id,
+        request_id=request_id,
+        customer_name=customer_name,
+        wamid=wamid,
+    )
+
+
 async def handle_button_reply(
     database,
     tenant: Dict[str, Any],
@@ -507,6 +542,24 @@ async def _handle_messages_change(database, background_tasks: BackgroundTasks, v
                 tenant_id=tenant_id,
                 sender_phone=sender_phone,
                 user_payload=text_payload,
+                tenant_token=tenant_token,
+                tenant_phone_id=tenant_phone_id,
+                request_id=request_id,
+                customer_name=customer_name,
+                wamid=message_id,
+            )
+
+    elif msg_type == "interactive" and (msg.get("interactive") or {}).get("type") == "nfm_reply":
+        # A form the customer filled in and submitted.
+        reply = (msg.get("interactive") or {}).get("nfm_reply") or {}
+        if sender_phone:
+            background_tasks.add_task(
+                handle_form_reply,
+                database=database,
+                tenant=tenant,
+                tenant_id=tenant_id,
+                sender_phone=sender_phone,
+                response_json=reply.get("response_json") or "{}",
                 tenant_token=tenant_token,
                 tenant_phone_id=tenant_phone_id,
                 request_id=request_id,
