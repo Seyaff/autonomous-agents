@@ -86,6 +86,7 @@ class TenantPublic(BaseModel):
     tenant_id: str
     tenant_slug: Optional[str] = None
     business_name: str
+    business_description: str = ""
     business_phone: Optional[str] = None
     address: Optional[str] = None
     currency: str = "USD"
@@ -132,7 +133,7 @@ async def create_tenant(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner_role),
 ):
-    """Creates a new restaurant tenant and links it to the authenticated owner."""
+    """Creates a new business tenant and links it to the authenticated owner."""
     try:
         currency, timezone_name = derive_locale(payload.country)
     except ValueError as e:
@@ -151,6 +152,7 @@ async def create_tenant(
         "tenant_slug": slug,
         "owner_id": user_mongo_id,
         "business_name": payload_data["business_name"],
+        "business_description": (payload_data.get("business_description") or "").strip(),
         "business_phone": payload_data.get("business_phone"),
         "address": payload_data.get("address"),
         "country": payload.country.upper(),
@@ -179,10 +181,10 @@ async def create_tenant(
         "updated_at": datetime.now(timezone.utc),
     }
 
-    # A second restaurant is in beta: only for owners we've switched it on for.
+    # A second business is in beta: only for owners we've switched it on for.
     existing = [t for t in (current_user.get("tenants") or []) if t]
     if existing and not beta.can_add_restaurant(current_user):
-        raise HTTPException(status_code=403, detail="Adding another restaurant is in beta. Ask us to turn it on for your account.")
+        raise HTTPException(status_code=403, detail="Adding another business is in beta. Ask us to turn it on for your account.")
 
     await db.tenants.insert_one(tenant_doc)
     await db["memberships"].insert_one({"user_id": current_user.get("user_id"), "tenant_id": tenant_doc["tenant_id"], "role": "owner", "created_at": datetime.now(timezone.utc)})
@@ -222,7 +224,7 @@ async def get_current_tenant(
     if not tenant_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active restaurant profile found. Please complete onboarding.",
+            detail="No active business profile found. Please complete onboarding.",
         )
 
     tenant = await db.tenants.find_one({"tenant_id": tenant_id})
@@ -247,7 +249,7 @@ async def update_current_tenant(
         await apply_tenant_update(db, tenant_id, payload, user_id=current_user.get("user_id"), source="settings")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"status": "success", "message": "Restaurant settings updated."}
+    return {"status": "success", "message": "Business settings updated."}
 
 
 @tenant_routes.patch("/current/agent-settings", response_model=AgentSettings)
@@ -313,7 +315,7 @@ async def set_agent_enabled(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """Pauses or resumes the customer-support agent for the whole restaurant.
+    """Pauses or resumes the customer-support agent for the whole business.
     While paused, customers still reach the inbox, and the owner replies by hand."""
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
@@ -394,7 +396,7 @@ async def list_menu_items(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """Dishes extracted from the most recent menu upload."""
+    """Catalog items: products, services or dishes, from uploads and added by hand."""
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=400, detail="No active tenant found.")
@@ -433,16 +435,16 @@ async def set_sold_out(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """Marks a dish sold out for today, or back in. It returns to the menu on its own tomorrow."""
+    """Marks an item unavailable for today, or back in. It returns to the catalog on its own tomorrow."""
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=400, detail="No active tenant found.")
     name = payload.name.strip()
     if not name:
-        raise HTTPException(status_code=400, detail="Name the dish.")
+        raise HTTPException(status_code=400, detail="Name the item.")
 
     tenant = await db.tenants.find_one({"tenant_id": tenant_id}, {"timezone": 1}) or {}
-    # Case-insensitive match on the dish name, so "chicken karahi" matches "Chicken Karahi".
+    # Case-insensitive match on the item name, so "chicken karahi" matches "Chicken Karahi".
     match = {"tenant_id": tenant_id, "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}
     if payload.sold_out:
         update = {"$set": {"sold_out_on": today_for(tenant)}}
@@ -450,7 +452,7 @@ async def set_sold_out(
         update = {"$unset": {"sold_out_on": ""}}
     result = await db["menu_items"].update_many(match, update)
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="That dish isn't on your menu.")
+        raise HTTPException(status_code=404, detail="That item isn't in your catalog.")
     return {"name": name, "sold_out_today": payload.sold_out, "dishes_updated": result.matched_count}
 
 
@@ -458,7 +460,7 @@ async def set_sold_out(
 # Meta embedded signup
 # ---------------------------------------------------------------------------
 async def _record_whatsapp_failure(db, tenant_id: str, message: str, status_code: int = 400) -> None:
-    """Marks the restaurant as errored with the reason, so the owner sees it, then raises."""
+    """Marks the business as errored with the reason, so the owner sees it, then raises."""
     logger.warning(f"[whatsapp-connect] failed tenant={tenant_id} status={status_code}: {message}")
     await db.tenants.update_one(
         {"tenant_id": tenant_id},
@@ -473,15 +475,15 @@ async def _record_whatsapp_failure(db, tenant_id: str, message: str, status_code
 
 
 async def _connect_whatsapp_number(db, tenant_id: str, token: str, phone_number_id: str, waba_id: str) -> Dict[str, Any]:
-    """Every step must pass before the restaurant is connected: the number isn't used by another
-    restaurant, the token can read the number, and the business account is subscribed to our webhook.
+    """Every step must pass before the business is connected: the number isn't used by another
+    business, the token can read the number, and the business account is subscribed to our webhook.
     Nothing falls back to shared credentials."""
     other = await db.tenants.find_one(
         {"phone_number_id": phone_number_id, "tenant_id": {"$ne": tenant_id}},
         {"tenant_id": 1},
     )
     if other:
-        await _record_whatsapp_failure(db, tenant_id, "This number is already connected to another restaurant.", 409)
+        await _record_whatsapp_failure(db, tenant_id, "This number is already connected to another business.", 409)
 
     try:
         details = await verify_phone_number(token, phone_number_id)
@@ -516,14 +518,14 @@ async def connect_meta_whatsapp(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """Connects this restaurant's number through the Meta Embedded Signup popup."""
+    """Connects this business's number through the Meta Embedded Signup popup."""
     tenant_id = current_user.get("active_tenant_id")
     logger.info(
         f"[meta-signup] start tenant={tenant_id} waba={payload.waba_id} "
         f"phone_number_id={payload.phone_number_id} has_code={bool(payload.code)}"
     )
     if not tenant_id:
-        raise HTTPException(status_code=400, detail="Create a restaurant profile first.")
+        raise HTTPException(status_code=400, detail="Create a business profile first.")
 
     if not (settings.META_APP_ID and settings.META_APP_SECRET):
         raise HTTPException(
@@ -568,7 +570,7 @@ async def connect_whatsapp_manually(
     The token is checked against Meta, then stored encrypted, the same as the popup route."""
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
-        raise HTTPException(status_code=400, detail="Create a restaurant profile first.")
+        raise HTTPException(status_code=400, detail="Create a business profile first.")
 
     phone_number_id = payload.phone_number_id.strip()
     waba_id = payload.waba_id.strip()
@@ -611,7 +613,7 @@ async def _exchange_signup_code(code: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# PDF menu    ← moved OUT of the function above, into its own top-level route
+# Catalog PDF (a menu, price list or service list)
 # ---------------------------------------------------------------------------
 @tenant_routes.post("/upload-menu-pdf", status_code=202)
 async def upload_menu_pdf(
@@ -620,15 +622,15 @@ async def upload_menu_pdf(
     current_user: dict = Depends(require_owner),
 ):
     """
-    Accepts a PDF menu and starts reading it in the background. Returns a job at
+    Accepts a PDF catalog (menu, price list, service list) and starts reading it in the background. Returns a job at
     once. Poll GET /tenant/menu-uploads/{job_id} for progress.
     """
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
-        raise HTTPException(status_code=400, detail="No active restaurant. Create the restaurant first.")
+        raise HTTPException(status_code=400, detail="No active business. Create the business first.")
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF menus are supported for now.")
+        raise HTTPException(status_code=400, detail="Only PDF files are supported for now.")
 
     file_bytes = await file.read()
     if not file_bytes:
@@ -641,7 +643,7 @@ async def upload_menu_pdf(
     if busy:
         raise HTTPException(
             status_code=409,
-            detail="A menu is already being read. Wait for it to finish, then upload the new one.",
+            detail="A file is already being read. Wait for it to finish, then upload the new one.",
         )
 
     job_id = await create_job(db, tenant_id, file.filename)
@@ -655,10 +657,10 @@ async def latest_menu_upload(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """The most recent menu upload, so a page reload picks up where it was."""
+    """The most recent catalog upload, so a page reload picks up where it was."""
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
-        raise HTTPException(status_code=400, detail="No active restaurant.")
+        raise HTTPException(status_code=400, detail="No active business.")
     await mark_stale_jobs(db, tenant_id)
     doc = await db[MENU_JOBS].find_one({"tenant_id": tenant_id}, sort=[("created_at", -1)])
     return {"job": public(doc)}
@@ -689,7 +691,7 @@ def _dish_id(item_id: str) -> ObjectId:
     try:
         return ObjectId(item_id)
     except (InvalidId, TypeError):
-        raise HTTPException(status_code=404, detail="That dish isn't on your menu.")
+        raise HTTPException(status_code=404, detail="That item isn't in your catalog.")
 
 
 @tenant_routes.post("/current/menu-items")
@@ -698,12 +700,12 @@ async def add_menu_item(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """Adds a dish the menu upload missed. Dishes added by hand aren't replaced by the next upload."""
+    """Adds a catalog item by hand. Items added by hand aren't replaced by the next upload."""
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=400, detail="No active tenant found.")
     if not payload.name or payload.price is None:
-        raise HTTPException(status_code=400, detail="A dish needs a name and a price.")
+        raise HTTPException(status_code=400, detail="An item needs a name and a price.")
     doc = {
         "tenant_id": tenant_id,
         "name": payload.name.strip(),
@@ -725,7 +727,7 @@ async def update_menu_item(
     db=Depends(get_database),
     current_user: dict = Depends(require_owner),
 ):
-    """Fixes a dish: its name, category, price, description, or whether the agent can offer it."""
+    """Fixes an item: its name, category, price, description, or whether the agent can offer it."""
     tenant_id = current_user.get("active_tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=400, detail="No active tenant found.")
@@ -743,7 +745,7 @@ async def update_menu_item(
         {"$set": {**changes, "updated_at": datetime.now(timezone.utc)}},
     )
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="That dish isn't on your menu.")
+        raise HTTPException(status_code=404, detail="That item isn't in your catalog.")
     return {"id": item_id, **changes}
 
 
@@ -758,5 +760,5 @@ async def delete_menu_item(
         raise HTTPException(status_code=400, detail="No active tenant found.")
     result = await db["menu_items"].delete_one({"_id": _dish_id(item_id), "tenant_id": tenant_id})
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="That dish isn't on your menu.")
+        raise HTTPException(status_code=404, detail="That item isn't in your catalog.")
     return {"status": "deleted"}

@@ -10,6 +10,7 @@ export interface SetupProgress {
 export interface SetupTenant {
   tenant_id: string
   business_name: string
+  business_description?: string
   currency: string
   timezone: string
   setup: SetupProgress
@@ -88,11 +89,12 @@ export const getMenuItems = async (): Promise<{ items: MenuItem[]; source_filena
 }
 
 export type CountryCode = "PK" | "AE" | "SA" | "GB" | "US"
-export type OrderType = "delivery" | "takeaway" | "dine_in"
+export type OrderType = "delivery" | "takeaway" | "dine_in" | "booking"
 export type PaymentMethod = "cash_on_delivery" | "card_on_delivery" | "bank_transfer"
 
 export interface CreateRestaurantPayload {
   business_name: string
+  business_description?: string
   country: CountryCode
   city?: string
   order_types: OrderType[]
@@ -112,6 +114,7 @@ export interface DayHoursPayload {
 
 export interface RestaurantUpdatePayload {
   business_name?: string
+  business_description?: string
   order_types?: OrderType[]
   operating_hours?: DayHoursPayload[]
   flat_delivery_fee?: number
@@ -161,7 +164,7 @@ export interface MenuJob {
   updated_at: string
 }
 
-/** Starts reading a menu in the background. Returns at once with a job to poll. */
+/** Starts reading a catalog (menu, price list, service list) in the background. Returns at once with a job to poll. */
 export const uploadMenuPdf = async (file: File): Promise<{ job_id: string }> => {
   const form = new FormData()
   form.append("file", file)

@@ -15,7 +15,7 @@ GRAPH = "https://graph.facebook.com/v19.0"
 AUTH_ERROR_CODES = {190, 10, 200}
 
 
-NOT_CONNECTED = "This restaurant hasn't connected its WhatsApp yet. Connect it in Settings."
+NOT_CONNECTED = "This business hasn't connected its WhatsApp yet. Connect it in Settings."
 
 
 def resolve_tenant_whatsapp_credentials(tenant: Optional[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:

@@ -101,7 +101,7 @@ async def owner_email(db, tenant_id: str) -> Optional[str]:
 
 
 def _tenant_name(tenant: Optional[Dict[str, Any]]) -> str:
-    return (tenant or {}).get("business_name") or "your restaurant"
+    return (tenant or {}).get("business_name") or "your business"
 
 
 def _date(value) -> str:
@@ -143,8 +143,8 @@ def _mail(to: str, subject: str, title: str, lines: list, dedupe_key: str, butto
 def welcome(to: str, name: str, user_id: str) -> None:
     _mail(to, "Welcome to Siyaf",
           "Welcome to Siyaf", [f"Hi {name}, your account is ready.",
-                               "Next, set up your restaurant. Your 3-day free trial starts now."],
-          f"welcome:{user_id}", "Set up my restaurant", "/setup")
+                               "Next, set up your business. Your 3-day free trial starts now."],
+          f"welcome:{user_id}", "Set up my business", "/setup")
 
 
 @_safe
@@ -250,13 +250,13 @@ def whatsapp_disconnected(to: str, tenant: Optional[Dict[str, Any]], tenant_id: 
 
 @_safe
 def founder_new_restaurant(founder_email: str, tenant: Dict[str, Any], owner: str) -> None:
-    _mail(founder_email, f"New restaurant: {_tenant_name(tenant)}",
-          "New restaurant signed up", [f"{_tenant_name(tenant)} was created by {owner}.",
+    _mail(founder_email, f"New business: {_tenant_name(tenant)}",
+          "New business signed up", [f"{_tenant_name(tenant)} was created by {owner}.",
                                        "They're on a 3-day trial."],
           f"founder_new_restaurant:{tenant['tenant_id']}", "Open operations", "/founder")
 
 
 async def owner_context(db, tenant_id: str) -> tuple:
-    """(owner's email, restaurant) for a tenant. The email is None if the owner can't be found."""
+    """(owner's email, business) for a tenant. The email is None if the owner can't be found."""
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"business_name": 1, "tenant_id": 1, "subscription": 1}) or {"tenant_id": tenant_id}
     return await owner_email(db, tenant_id), tenant

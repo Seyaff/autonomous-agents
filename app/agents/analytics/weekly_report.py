@@ -17,7 +17,7 @@ llm = get_chat_model(purpose="weekly_report", temperature=0.3)
 
 
 async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
-    """Aggregates restaurant operations and sales metrics over the trailing 7 days."""
+    """Aggregates the business's operations and sales metrics over the trailing 7 days."""
     db = get_database()
     now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
@@ -65,7 +65,7 @@ async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
         if st == "cancelled":
             cancelled_orders += 1
         elif st != "pending":
-            # A pending order hasn't been accepted by the restaurant yet —
+            # A pending order hasn't been accepted by the business yet —
             # not real revenue any more than a cancelled one is.
             total_revenue += amt
 
@@ -107,14 +107,14 @@ async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
 async def compile_and_send_weekly_report(tenant_id: str) -> Dict[str, Any]:
     """
     Autonomous Agent that compiles a 7-day executive summary and proactively
-    notifies the restaurant owner on WhatsApp with actionable recommendations.
+    notifies the business owner on WhatsApp with actionable recommendations.
     """
     db = get_database()
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id})
     if not tenant:
         raise ValueError(f"Tenant {tenant_id} not found.")
 
-    business_name = tenant.get("business_name") or tenant.get("name") or "Your Restaurant"
+    business_name = tenant.get("business_name") or tenant.get("name") or "Your business"
     currency = tenant.get("currency", "USD")
     owner_phone = tenant.get("owner_whatsapp_number") or tenant.get("business_phone")
 
@@ -125,12 +125,12 @@ async def compile_and_send_weekly_report(tenant_id: str) -> Dict[str, Any]:
     # LLM Synthesizer compiles high-impact weekly briefing
     system_prompt = (
         "You are an expert hospitality business consultant and operations intelligence agent. "
-        "Review the restaurant's trailing 7-day performance metrics and write a crisp, professional, "
-        "and encouraging executive summary for the restaurant owner. Include 3 strategic, actionable tips "
-        "to increase revenue, reduce cancellations, or promote best-selling dishes next week."
+        "Review the business's trailing 7-day performance metrics and write a crisp, professional, "
+        "and encouraging executive summary for the business owner. Include 3 strategic, actionable tips "
+        "to increase revenue, reduce cancellations, or promote best-selling items next week."
     )
 
-    human_prompt = f"""Restaurant: {business_name}
+    human_prompt = f"""Business: {business_name}
 Trailing 7-Day Performance:
 - Total Orders Placed: {metrics['total_orders']}
 - Total Revenue: {currency} {metrics['total_revenue']}
@@ -138,7 +138,7 @@ Trailing 7-Day Performance:
 - Cancelled Orders: {metrics['cancelled_orders']} ({metrics['cancellation_rate']}%)
 - Average Order Value: {currency} {metrics['average_order_value']}
 - Unique Customers Served: {metrics['unique_customers']}
-- Top Selling Dishes:
+- Top Selling Items:
 {top_items_text}
 
 Please provide:

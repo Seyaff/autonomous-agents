@@ -289,4 +289,4 @@ def test_prompt_lists_delivery_rules_when_set():
     assert "Gulberg, DHA" in prompt
     assert "Minimum order: PKR 800" in prompt
     assert "cash on delivery" in prompt
-    assert "Order types: delivery, takeaway" in prompt
+    assert "Order types: delivery, pickup" in prompt

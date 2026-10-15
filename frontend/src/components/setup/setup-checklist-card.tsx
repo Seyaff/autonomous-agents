@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useSetupReminders } from "@/hooks/setup/use-setup-reminders"
 
 const LABELS: Record<string, { title: string; href: string; cta: string }> = {
-  menu: { title: "Upload your menu", href: "/setup/menu", cta: "Upload menu" },
+  menu: { title: "Add your catalog", href: "/setup/menu", cta: "Add catalog" },
   whatsapp: { title: "Connect WhatsApp", href: "/setup/whatsapp", cta: "Connect" },
 }
 

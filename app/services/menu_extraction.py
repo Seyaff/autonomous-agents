@@ -1,5 +1,5 @@
 """
-Turns a menu's text into structured dishes, so the setup screen can show them.
+Turns a catalog's text (a menu, price list or service list) into structured items, so the setup screen can show them.
 
 The menu is still indexed for search (Pinecone) as before. This adds a
 structured list on top: name, category, price and description.
@@ -33,20 +33,20 @@ MAX_ATTEMPTS = 6
 # on_progress(parts_done, parts_total, note). note is set while the job waits on the model.
 ProgressCallback = Callable[[int, int, Optional[str]], Awaitable[None]]
 
-EXTRACTION_PROMPT = """Extract the dishes from this part of a restaurant menu.
+EXTRACTION_PROMPT = """Extract the items this business sells from this part of its catalog. It may be a menu, a price list, a product list or a list of services.
 
 Return JSON only, in this shape:
 {"items": [{"name": "...", "category": "...", "price": 0.0, "description": "..."}]}
 
 Rules:
-- One entry per dish. Use the dish's name as printed.
-- category is the section heading it sits under (e.g. "Burgers", "Drinks"). Use "Other" if there is none.
-- price is a number in the menu's currency with no symbol. Use null if no price is shown.
+- One entry per product, service or dish. Use the name as printed. Keep a size or variant in the name ("Haircut - Men", "Pizza Large") when each has its own price.
+- category is the section heading it sits under (e.g. "Burgers", "Hair", "Phones"). Use "Other" if there is none.
+- price is a number in the catalog's currency with no symbol. Use null if no price is shown.
 - description is short, or "" if none.
-- Skip prices-only lines, opening hours, addresses and promotions that aren't dishes.
-- If this part has no dishes, return {"items": []}.
+- Skip prices-only lines, opening hours, addresses and promotions that aren't items.
+- If this part has no items, return {"items": []}.
 
-Menu text:
+Catalog text:
 {menu}"""
 
 
@@ -119,7 +119,7 @@ async def _ask_chunk(model, chunk: str, on_wait: Callable[[str], Awaitable[None]
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             response = await model.ainvoke([
-                SystemMessage(content="You output strict JSON for a restaurant menu system."),
+                SystemMessage(content="You output strict JSON for a business catalog system."),
                 HumanMessage(content=EXTRACTION_PROMPT.replace("{menu}", chunk)),
             ])
             return str(response.content)

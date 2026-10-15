@@ -21,7 +21,7 @@ export function WelcomeStep() {
       <div className="space-y-2 rounded-md border border-border p-3">
         <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">You&apos;ll need</p>
         <ul className="list-disc space-y-1 pl-4 text-sm">
-          <li>Your menu as a PDF or a photo</li>
+          <li>Your menu, price list or service list as a PDF</li>
           <li>Your opening hours and delivery areas</li>
           <li>A Facebook account and a phone number for WhatsApp</li>
         </ul>

@@ -44,10 +44,11 @@ export function toTenantSummary(tenant: Tenant): TenantSummary {
   }
 }
 
-/** Full restaurant record for the settings page (the chrome only needs TenantSummary). */
+/** Full business record for the settings page (the chrome only needs TenantSummary). */
 export interface TenantSettings {
   tenant_id: string
   business_name: string
+  business_description?: string
   business_phone?: string | null
   address?: string | null
   currency: string
@@ -71,6 +72,7 @@ export const getTenantSettings = async (): Promise<TenantSettings> => {
 
 export interface TenantSettingsUpdate {
   business_name?: string
+  business_description?: string
   business_phone?: string
   address?: string
   currency?: string

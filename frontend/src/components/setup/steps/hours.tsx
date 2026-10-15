@@ -141,15 +141,17 @@ export function HoursStep() {
   return (
     <>
       <div className="space-y-1.5">
-        <DialogTitle className="font-heading text-lg">Hours and delivery</DialogTitle>
-        <DialogDescription>When you&apos;re open, and what delivery looks like.</DialogDescription>
+        <DialogTitle className="font-heading text-lg">{deliveryOn ? "Hours and delivery" : "Hours and payment"}</DialogTitle>
+        <DialogDescription>
+          {deliveryOn ? "When you're open, and what delivery looks like." : "When you're open, and how customers pay."}
+        </DialogDescription>
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
         <TabsList>
           <TabsTrigger value="hours">Opening hours</TabsTrigger>
           <TabsTrigger value="delivery">
-            Delivery &amp; payment
+            {deliveryOn ? "Delivery & payment" : "Orders & payment"}
             {(paymentError || areaError) && <span className="ml-1.5 size-1.5 rounded-full bg-destructive" />}
           </TabsTrigger>
         </TabsList>
@@ -189,6 +191,7 @@ export function HoursStep() {
 
         <TabsContent value="delivery" className="space-y-5 pt-2">
           <div className="grid gap-4 sm:grid-cols-2">
+            {deliveryOn && (
             <div className="space-y-1.5">
               <Label htmlFor="h-fee">Delivery fee</Label>
               <div className="flex items-center gap-2">
@@ -203,6 +206,7 @@ export function HoursStep() {
                 <Badge variant="outline">{currency}</Badge>
               </div>
             </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="h-min">Minimum order</Label>
               <div className="flex items-center gap-2">
@@ -220,7 +224,7 @@ export function HoursStep() {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="h-prep">Usual delivery time</Label>
+            <Label htmlFor="h-prep">{deliveryOn ? "Usual delivery time" : "Usual time to get an order ready"}</Label>
             <select
               id="h-prep"
               value={shownPrep}
@@ -233,6 +237,7 @@ export function HoursStep() {
             </select>
           </div>
 
+          {deliveryOn && (
           <div className="space-y-2">
             <Label htmlFor="h-area">Delivery areas</Label>
             <div className="flex flex-wrap gap-1.5">
@@ -266,6 +271,7 @@ export function HoursStep() {
             />
             {areaError && <p className="text-xs text-destructive">{areaError}</p>}
           </div>
+          )}
 
           <fieldset className="space-y-2">
             <legend className="mb-1.5 text-sm font-medium">Payment methods</legend>

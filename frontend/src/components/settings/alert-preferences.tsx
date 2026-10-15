@@ -53,7 +53,7 @@ export function AlertPreferences() {
 
       {prefs.data && !prefs.data.owner_phone && (
         <p className="mt-3 rounded-md bg-need-soft p-2 text-sm text-need">
-          Add your WhatsApp number in Restaurant settings, or these alerts can&apos;t reach you.
+          Add your WhatsApp number in Business settings, or these alerts can&apos;t reach you.
         </p>
       )}
 

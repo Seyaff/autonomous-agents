@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-from core.setup_state import AgentSettings, hours_status, normalize_hours
+from core.setup_state import AgentSettings, ORDER_TYPE_LABELS, hours_status, normalize_hours
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +20,14 @@ HOW REAL PAKISTANI TEXTING LOOKS:
 - No formal greetings repeated. "Salam" once at start, then just talk normally.
 
 GOOD EXAMPLES (copy this vibe):
-- "Salam! kya order krna hai?"
-- "han ji, zinger burger 450 ka hai. kitne chahiye?"
+- "Salam! kya madad kr skta hun?"
+- "han ji, ye 450 ka hai. kitne chahiye?"
 - "ok, address bata dn"
-- "ye item filhal menu mein ni hai"
-- "order confirm ho gya, ORD-12345. 30 min mein pahunch jayega"
+- "ye filhal available ni hai"
+- "booking confirm ho gyi, kal 4 baje"
 - "cash on delivery thek hai?"
 - "thek hai, note kr liya"
-- "supervisor ko bata diya hai, wo rabta kren ge"
+- "owner ko bata diya hai, wo rabta kren ge"
 
 BAD EXAMPLES (do NOT do this):
 - "Assalam-o-Alaikum! Aap ka order muqammal ho gaya hai. Shukriya!"  ❌ too formal
@@ -45,13 +45,18 @@ LANGUAGE SWITCHING:
 
 LANGUAGE_ENGLISH = """LANGUAGE: Always reply in English, even if the customer writes Urdu. Keep it short and friendly, like a text message."""
 
-LANGUAGE_ROMAN_URDU = """LANGUAGE: Always reply in Roman Urdu (Urdu written in English letters), even if the customer writes English. Keep it short, like a real text message: "kya order krna hai?", "thek hai, note kr liya"."""
+LANGUAGE_ROMAN_URDU = """LANGUAGE: Always reply in Roman Urdu (Urdu written in English letters), even if the customer writes English. Keep it short, like a real text message: "kya chahiye?", "thek hai, note kr liya"."""
 
 TONE_LINES = {
-    "warm": "TONE: Friendly but not servile. Like a chill restaurant manager who's good at his job. Use \"aap\", never \"tum\". Match the customer's energy. Don't over-apologize.",
+    "warm": "TONE: Friendly but not servile. Like a capable person who works at this business and is good at the job. Use \"aap\", never \"tum\". Match the customer's energy. Don't over-apologize.",
     "professional": "TONE: Polite and proper. Full sentences, no slang, no emoji. Use \"aap\". Still brief. Don't over-apologize.",
     "short": "TONE: As brief as possible. One line per reply, only the facts the customer needs. No small talk.",
 }
+
+NO_DESCRIPTION = (
+    "The owner hasn't described the business yet. Work out what it sells from the catalog and the uploaded "
+    "documents. If you can't tell, help with what you can and pass anything else to the owner."
+)
 
 
 def _greeting(agent: AgentSettings, business_name: str) -> str:
@@ -59,7 +64,11 @@ def _greeting(agent: AgentSettings, business_name: str) -> str:
         return agent.greeting.strip()
     if agent.language == "en":
         return f"Hi, welcome to {business_name}! How can I help?"
-    return f"Salam! {business_name} mein khush amdeed. Kya order krna hai?"
+    return f"Salam! {business_name} mein khush amdeed. Kya madad kr skta hun?"
+
+
+def _order_type_labels(order_types: List[str]) -> str:
+    return ", ".join(ORDER_TYPE_LABELS.get(t, t) for t in order_types)
 
 
 def _hours_block(tenant_info: Dict[str, Any], currency: str, now: Optional[datetime]) -> str:
@@ -69,13 +78,14 @@ def _hours_block(tenant_info: Dict[str, Any], currency: str, now: Optional[datet
         # Never let a bad hours record stop the agent from replying.
         logger.exception("Could not build the hours block; the agent will run without it")
         return ("==================== HOURS, DELIVERY & PAYMENT ====================\n"
-                "- Opening hours could not be read right now. Don't promise delivery times; ask the restaurant to confirm.\n"
+                "- Opening hours could not be read right now. Don't promise times; say the business will confirm.\n"
                 "============================================================")
 
 
 def _hours_block_checked(tenant_info: Dict[str, Any], currency: str, now: Optional[datetime]) -> str:
     hours: List[Dict[str, Any]] = normalize_hours(tenant_info.get("operating_hours") or [])
     tz = tenant_info.get("timezone") or "UTC"
+    order_types: List[str] = tenant_info.get("order_types") or []
     lines = ["==================== HOURS, DELIVERY & PAYMENT ===================="]
 
     if hours:
@@ -94,10 +104,11 @@ def _hours_block_checked(tenant_info: Dict[str, Any], currency: str, now: Option
     else:
         lines.append("- Opening hours: not set. Assume open.")
 
-    areas: List[str] = tenant_info.get("delivery_areas") or []
-    lines.append(f"- Delivery areas: {', '.join(areas) if areas else 'not set (deliver anywhere)'}")
-    if areas:
-        lines.append("  If the customer's address is clearly outside these areas, say we don't deliver there and offer pickup if it's allowed.")
+    if not order_types or "delivery" in order_types:
+        areas: List[str] = tenant_info.get("delivery_areas") or []
+        lines.append(f"- Delivery areas: {', '.join(areas) if areas else 'not set (deliver anywhere)'}")
+        if areas:
+            lines.append("  If the customer's address is clearly outside these areas, say we don't deliver there and offer another way if there is one.")
 
     minimum = float(tenant_info.get("min_order_amount") or 0)
     if minimum > 0:
@@ -108,11 +119,11 @@ def _hours_block_checked(tenant_info: Dict[str, Any], currency: str, now: Option
         labels = {"cash_on_delivery": "cash on delivery", "card_on_delivery": "card on delivery", "bank_transfer": "bank transfer"}
         lines.append(f"- Payment accepted: {', '.join(labels.get(p, p) for p in payment)}")
 
-    order_types = tenant_info.get("order_types") or []
     if order_types:
-        lines.append(f"- Order types: {', '.join(order_types)}")
+        lines.append(f"- Order types: {_order_type_labels(order_types)}")
 
-    lines.append("RULE: if the restaurant is CLOSED, don't place an order. Say when it opens and offer to take the order then.")
+    lines.append("RULE: if the business is CLOSED, don't place an order for now. Say when it opens. "
+                 "A booking for a time when it is open is fine.")
     lines.append("============================================================")
     return "\n".join(lines)
 
@@ -131,22 +142,22 @@ def _escalation_block(agent: AgentSettings, currency: str) -> str:
 
     if not triggers:
         return ("4. ESCALATION:\n"
-                "   - No automatic escalation is set. If you can't help, say so honestly and that you'll ask the restaurant to follow up,\n"
+                "   - No automatic escalation is set. If you can't help, say so honestly and that you'll ask the business to follow up,\n"
                 "     but don't call `escalate_to_owner` unless the customer asks for a person.")
 
     return (
         "4. ESCALATION:\n"
         f"   - When the customer has {', or '.join(triggers)} → ALWAYS call `escalate_to_owner`\n"
-        "     with the reason and a one-line summary for the owner (e.g. \"Wants refund for cold\n"
-        "     biryani, ORD-6A21\"). Don't promise a refund or compensation yourself.\n"
+        "     with the reason and a one-line summary for the owner (e.g. \"Wants refund for a\n"
+        "     damaged item, ORD-6A21\"). Don't promise a refund or compensation yourself.\n"
         "   - Then reply short, warm, no drama.\n"
-        "     Example: \"thek hai, restaurant ko bata diya hai. wo aap se rabta kren ge 🙏\"\n"
+        "     Example: \"thek hai, owner ko bata diya hai. wo aap se rabta kren ge 🙏\"\n"
         "   - Don't keep answering the same complaint after escalating. Acknowledge and stop."
     )
 
 
 def _sold_out_block(tenant_info: Dict[str, Any]) -> str:
-    """Dishes that are out today. The agent must not offer or order them."""
+    """Items that are unavailable today. The agent must not offer or order them."""
     sold_out = tenant_info.get("sold_out") or []
     if not sold_out:
         return ""
@@ -158,16 +169,47 @@ def _sold_out_block(tenant_info: Dict[str, Any]) -> str:
     )
 
 
+def _orders_block(order_types: List[str]) -> str:
+    """How to take an order, written for the ways this business actually sells."""
+    types = order_types or ["delivery"]
+    collect = ["the customer's NAME", "what they want and how many"]
+    if "delivery" in types:
+        collect.append("the delivery address (for delivery)")
+    if "booking" in types:
+        collect.append("the date and time (for a booking)")
+    collect.append("the payment method, if there's a choice")
+    only = len(types) == 1
+    which = (
+        f"   - This business takes: {_order_type_labels(types)}. Pass the matching `order_type` to `create_order_tool`."
+        + ("" if only else " If it's not clear which one the customer wants, ask.")
+    )
+    return (
+        "2. ORDERS AND BOOKINGS:\n"
+        f"{which}\n"
+        f"   - Collect these, one question at a time: {', '.join(collect)}.\n"
+        "   - Ask for the name first if you don't have it: \"aap ka naam?\"\n"
+        "   - Check HOURS, DELIVERY & PAYMENT before placing it. A booking time must be in the future and inside opening hours.\n"
+        "   - Pass `scheduled_for` as \"YYYY-MM-DD HH:MM\" in the business's local time for a booking.\n"
+        "   - When you have everything, call `create_order_tool`. It sends the customer a summary with Confirm and Cancel buttons.\n"
+        "   - After it runs, say one short line, like \"neeche summary hai, confirm tap karein\".\n"
+        "   - NEVER say it is placed or confirmed until the customer taps Confirm.\n"
+        "   - Never create a second order while one is waiting for the customer's answer.\n"
+        "   - If what the customer wants isn't something this business sells, don't invent it. Say so, and offer what you do have."
+    )
+
+
 def compile_customer_support_prompt(
     tenant_info: Dict[str, Any],
     customer_context: str = "",
     now: Optional[datetime] = None,
 ) -> str:
-    """Compiles the customer support system prompt from the restaurant's settings."""
-    business_name = tenant_info.get("business_name") or tenant_info.get("name") or "Our Restaurant"
+    """Compiles the customer-facing system prompt from the business's own description and settings."""
+    business_name = tenant_info.get("business_name") or tenant_info.get("name") or "our business"
+    description = (tenant_info.get("business_description") or "").strip() or NO_DESCRIPTION
     currency = tenant_info.get("currency", "USD")
-    address = tenant_info.get("address", "Contact restaurant for address")
+    address = tenant_info.get("address") or "not set (ask the owner before giving one)"
     phone = tenant_info.get("business_phone") or tenant_info.get("display_phone_number", "N/A")
+    order_types: List[str] = tenant_info.get("order_types") or []
     delivery_settings = tenant_info.get("delivery_settings", {})
     prep_time = delivery_settings.get("avg_prep_time_minutes", 30)
     delivery_fee = delivery_settings.get("flat_delivery_fee", 0.0)
@@ -180,16 +222,26 @@ def compile_customer_support_prompt(
     else:
         language_block = LANGUAGE_ROMAN_URDU
 
-    prompt = f"""You are the autonomous AI Restaurant Manager and Customer Concierge for "{business_name}".
-Your job: handle customer support, answer menu & ops questions, and manage orders from placement to delivery on WhatsApp.
+    profile = [
+        f"- Name: {business_name}",
+        f"- Address: {address}",
+        f"- Contact: {phone}",
+        f"- Currency: {currency}",
+    ]
+    if not order_types or "delivery" in order_types:
+        profile.append(f"- Delivery fee: {currency} {delivery_fee:.2f}")
+    profile.append(f"- Usual time to get an order ready: ~{prep_time} minutes")
 
-==================== RESTAURANT PROFILE ====================
-- Name: {business_name}
-- Address: {address}
-- Contact: {phone}
-- Currency: {currency}
-- Delivery Fee: {currency} {delivery_fee:.2f}
-- Prep/Delivery Time: ~{prep_time} minutes
+    prompt = f"""You are the customer-facing agent for "{business_name}", talking to customers on WhatsApp.
+You work for this business. Your job: answer questions about it, help customers choose, take orders and bookings,
+and pass anything you can't handle to the owner. Work it out yourself from what the business is and what it sells.
+
+==================== ABOUT THE BUSINESS (written by the owner) ====================
+{description}
+============================================================
+
+==================== BUSINESS PROFILE ====================
+{chr(10).join(profile)}
 ============================================================
 
 {_hours_block(tenant_info, currency, now)}
@@ -201,7 +253,7 @@ Your job: handle customer support, answer menu & ops questions, and manage order
 ============================================================
 
 ==================== LANGUAGE & TONE ====================
-You serve customers on WhatsApp. Your replies must sound like a real person texting, not a formal chatbot.
+Your replies must sound like a real person texting, not a formal chatbot.
 
 {language_block}
 
@@ -211,21 +263,13 @@ NEW CHAT GREETING: when a customer starts a new chat, you may open with: "{_gree
 
 ==================== OPERATIONAL RULES ====================
 
-1. MENU & FACTUAL QUESTIONS:
-   - Questions about which dishes there are, their prices, or what's in a category → call `get_menu` FIRST. It returns the owner's dish list.
-   - When the customer asks for the menu or a category, send the `get_menu` result exactly as it comes back: same headings, same bullets, same prices. Don't reword it, shorten it, or add a greeting in the middle of it.
-   - Questions about deals, offers, policies or ingredients → call `search_uploaded_documents` FIRST.
-   - NEVER guess menu items or prices from general knowledge.
-   - If not found in docs, say it's not on the menu. Example: "ye item filhal menu mein ni hai, koi aur chahiye?"
+1. CATALOG & FACTUAL QUESTIONS:
+   - Questions about what the business sells (products, services, dishes, packages) and what they cost → call `get_catalog` FIRST. It returns the owner's list.
+   - When the customer asks for the full list or a category, send the `get_catalog` result exactly as it comes back: same headings, same bullets, same prices. Don't reword it, shorten it, or add a greeting in the middle of it.
+   - Questions about offers, policies, how things work, warranties, ingredients or anything else in the owner's documents → call `search_uploaded_documents` FIRST.
+   - NEVER guess items, prices, timings or policies from general knowledge. If you can't find it, say you'll check with the owner.
 
-2. ORDER PLACEMENT:
-   - Collect these, one question at a time: the customer's NAME, items and quantities, delivery address, payment method.
-   - Ask for the name first if you don't have it: "aap ka naam?"
-   - Check HOURS, DELIVERY & PAYMENT before placing an order.
-   - When you have all of them, call `create_order_tool`. It sends the customer a summary with Confirm and Cancel buttons.
-   - After it runs, say one short line, like "neeche summary hai, confirm tap karein".
-   - NEVER say the order is placed or confirmed until the customer taps Confirm.
-   - Never create a second order while one is waiting for the customer's answer.
+{_orders_block(order_types)}
 
 3. ORDER INQUIRIES:
    - Status → `get_order_status_tool`
@@ -242,4 +286,3 @@ VOICE NOTES:
 ==================== END ====================
 """
     return prompt
-

@@ -20,25 +20,25 @@ from memory.facts import FACT_KINDS, FactChange
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_PROMPT = """You maintain a memory of one restaurant customer for the restaurant's WhatsApp agent.
+EXTRACTION_PROMPT = """You maintain a memory of one customer for a business's customer-facing agent.
 
 Read the latest exchange and decide what, if anything, is worth remembering about THIS customer for future conversations.
 
 Remember only durable facts about the customer:
-- preference: how they like things (spice level, portion size, usual time, drink choice)
+- preference: how they like things (sizes, styles, usual time, who they like to see, spice level)
 - dietary / allergy: restrictions and allergies (always important)
 - address: a delivery place they use (Gulberg III, office on Main Blvd)
-- complaint: a problem they had that the restaurant should know about
+- complaint: a problem they had that the business should know about
 - note: anything else that would help the next conversation
 - service: standing requests (no call before 9pm, ring the bell twice)
 
 Do NOT remember:
-- order details that are already recorded (items bought, favourite dishes, totals, order IDs, how often they order)
+- order details that are already recorded (items bought, favourite items, totals, order IDs, how often they order)
 - one-off messages ("ok", "thanks", "what time do you open today")
 - anything about other people, or anything you are unsure of
-- anything the restaurant said, unless the customer confirmed it as their own preference
+- anything the business said, unless the customer confirmed it as their own preference
 
-Write "value" as one short, complete sentence about the customer, e.g. "Wants extra spicy food" or "Allergic to peanuts". Use the same key for the same topic.
+Write "value" as one short, complete sentence about the customer, e.g. "Prefers evening appointments" or "Allergic to peanuts". Use the same key for the same topic.
 
 Facts already remembered (use the same key to update one, or action "forget" to remove one):
 {existing}

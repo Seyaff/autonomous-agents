@@ -13,7 +13,11 @@ export interface Order {
   tenant_id: string
   customer_phone: string
   customer_name?: string | null
-  delivery_address: string
+  /** Orders saved before order types existed are delivery orders. */
+  order_type?: "delivery" | "takeaway" | "dine_in" | "booking"
+  delivery_address: string | null
+  /** A booking's time in the business's own timezone, "YYYY-MM-DD HH:MM". */
+  scheduled_for_local?: string | null
   items: OrderItem[]
   total_amount: number
   payment_method: string

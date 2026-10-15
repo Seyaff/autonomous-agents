@@ -97,7 +97,7 @@ PROVIDERS: Dict[str, OnlineProvider] = {"jazzcash": JazzCashProvider(), "easypai
 
 
 def provider_for(tenant: Dict[str, Any]) -> Optional[OnlineProvider]:
-    """The provider this restaurant chose, if it's set up. None means cash on delivery only."""
+    """The provider this business chose, if it's set up. None means cash on delivery only."""
     name = (tenant or {}).get("online_payment_provider")
     provider = PROVIDERS.get(name) if name else None
     return provider if provider and provider.configured() else None
@@ -144,6 +144,10 @@ async def ensure_payment_indexes(db) -> None:
 # The order steps
 # ---------------------------------------------------------------------------
 
+def _business(tenant: Dict[str, Any]) -> str:
+    return tenant.get("business_name") or "business"
+
+
 async def _reply(tenant: Dict[str, Any], customer_phone: str, text: str) -> None:
     from core.whatsapp_utils import resolve_tenant_whatsapp_credentials, send_text
 
@@ -189,7 +193,7 @@ async def handle_payment_choice(db, tenant: Dict[str, Any], customer_phone: str,
             "$set": {"status": "pending", "payment_method": "cod", "updated_at": now},
             "$push": {"status_history": {"status": "pending", "at": now, "by": "customer", "by_user_id": None, "customer_notified": True}},
         })
-        await _reply(tenant, customer_phone, f"Thek hai, cash on delivery. Order {order_id} restaurant ko chala gaya.")
+        await _reply(tenant, customer_phone, f"Thek hai, cash on delivery. Order {order_id} {_business(tenant)} ko chala gaya.")
         order["status"] = "pending"
         order.pop("_id", None)
         await broadcast_order_update(tenant_id=tenant["tenant_id"], event_type="order.created", order_data=order)
@@ -260,7 +264,7 @@ async def handle_payment_webhook(db, provider_name: str, headers: Dict[str, str]
         "$push": {"status_history": {"status": "pending", "at": now, "by": "payment", "by_user_id": None, "customer_notified": True}},
     })
     tenant = await db["tenants"].find_one({"tenant_id": order["tenant_id"]}) or {"tenant_id": order["tenant_id"]}
-    await _reply(tenant, order["customer_phone"], f"Payment mil gayi. Order {order['order_id']} restaurant ko chala gaya.")
+    await _reply(tenant, order["customer_phone"], f"Payment mil gayi. Order {order['order_id']} {_business(tenant)} ko chala gaya.")
     order["status"] = "pending"
     order.pop("_id", None)
     await broadcast_order_update(tenant_id=order["tenant_id"], event_type="order.created", order_data=order)

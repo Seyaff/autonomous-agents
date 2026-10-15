@@ -15,7 +15,7 @@ const MOCK_ORDERS_KEY = ["mock", "orders"] as const
 
 const STATUS_PHRASE: Partial<Record<OrderStatus, string>> = {
   accepted: "was accepted",
-  preparing: "moved to the kitchen",
+  preparing: "moved to in progress",
   out_for_delivery: "is on the way",
   delivered: "was delivered",
   cancelled: "was cancelled",

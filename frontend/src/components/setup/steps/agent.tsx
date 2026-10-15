@@ -31,7 +31,7 @@ const TONES: { value: Tone; label: string }[] = [
 ]
 
 function suggestedGreeting(name: string, language: Language) {
-  const shop = name.trim() || "our restaurant"
+  const shop = name.trim() || "our business"
   if (language === "en") return `Hi, welcome to ${shop}! How can I help?`
   return `Salam! ${shop} mein khush amdeed. Kya order krna hai?`
 }

@@ -4,7 +4,7 @@ Builds what the agent sees on each turn.
 Memory has two parts, both stored once and read fresh every turn:
 - the customer card (orders, favourites, durable facts), see customer_card.py
 - the recent window: the last few messages of this conversation, read from
-  the `messages` collection, which also holds what the restaurant staff said
+  the `messages` collection, which also holds what the business's staff said
 
 Nothing here is replayed back into storage, so the stored record never grows
 with duplicates however many turns happen.
@@ -33,7 +33,7 @@ def _to_message(doc: Dict[str, Any]) -> Optional[BaseMessage]:
     if sender == "customer":
         return HumanMessage(content=content)
     if sender == "human":
-        return AIMessage(content=f"[restaurant staff] {content}")
+        return AIMessage(content=f"[business staff] {content}")
     if sender == "system":
         return AIMessage(content=f"[system notice] {content}")
     return AIMessage(content=content)

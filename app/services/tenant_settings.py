@@ -1,5 +1,5 @@
 """
-Saving restaurant settings. The settings screens and the owner assistant both save through here,
+Saving business settings. The settings screens and the owner assistant both save through here,
 so the same checks apply, and every change is written to the change log with what it was before.
 """
 
@@ -7,15 +7,16 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from core.setup_state import AgentSettings, DayHours
+from core.setup_state import BUSINESS_DESCRIPTION_MAX, AgentSettings, DayHours, OrderType
 
 CHANGE_LOG = "settings_changes"
 
 
 class TenantUpdatePayload(BaseModel):
     business_name: Optional[str] = None
+    business_description: Optional[str] = Field(None, max_length=BUSINESS_DESCRIPTION_MAX)
     business_phone: Optional[str] = None
     address: Optional[str] = None
     currency: Optional[str] = None
@@ -26,7 +27,7 @@ class TenantUpdatePayload(BaseModel):
     min_order_amount: Optional[float] = None
     delivery_areas: Optional[List[str]] = None
     payment_methods: Optional[List[Literal["cash_on_delivery", "card_on_delivery", "bank_transfer"]]] = None
-    order_types: Optional[List[Literal["delivery", "takeaway", "dine_in"]]] = None
+    order_types: Optional[List[OrderType]] = None
 
 
 def _dig(doc: Dict[str, Any], path: str) -> Any:
@@ -57,6 +58,8 @@ async def apply_tenant_update(db, tenant_id: str, payload: TenantUpdatePayload, 
     fields: Dict[str, Any] = {}
     if payload.business_name:
         fields["business_name"] = payload.business_name
+    if payload.business_description is not None:
+        fields["business_description"] = payload.business_description.strip()
     if payload.business_phone:
         fields["business_phone"] = payload.business_phone
     if payload.address:

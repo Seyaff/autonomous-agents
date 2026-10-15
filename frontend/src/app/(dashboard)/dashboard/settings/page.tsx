@@ -4,6 +4,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
@@ -81,15 +82,26 @@ function Settings() {
     <div className="flex flex-1 flex-col overflow-y-auto">
       <div className="shrink-0 border-b border-border bg-card px-4 py-2">
         <h1 className="text-sm font-medium">Settings</h1>
-        <p className="font-mono text-[11px] text-muted-foreground">Restaurant details, the agent, and your plan</p>
+        <p className="font-mono text-[11px] text-muted-foreground">Business details, the agent, and your plan</p>
       </div>
 
       <div className="grid gap-4 p-4 lg:grid-cols-[1fr_320px]">
         <form onSubmit={save} className="space-y-6 rounded-lg border border-border bg-card p-4">
           <section className="space-y-4">
-            <h2 className="text-sm font-medium">Restaurant</h2>
+            <h2 className="text-sm font-medium">Business</h2>
             <Field id="s-name" label="Business name">
               <Input id="s-name" value={value("business_name", t.business_name)} onChange={(e) => set("business_name", e.target.value)} />
+            </Field>
+            <Field id="s-description" label="What your business does">
+              <Textarea
+                id="s-description"
+                rows={5}
+                maxLength={2000}
+                value={value("business_description", t.business_description ?? "")}
+                onChange={(e) => set("business_description", e.target.value)}
+                placeholder="What you sell, who you serve, how ordering or booking works, and anything customers often ask."
+              />
+              <p className="font-mono text-[11px] text-muted-foreground">Your agent works from this. Write it the way you&apos;d brief a new employee.</p>
             </Field>
             <Field id="s-phone" label="Business phone">
               <Input id="s-phone" value={value("business_phone", t.business_phone ?? "")} onChange={(e) => set("business_phone", e.target.value)} />
@@ -129,7 +141,7 @@ function Settings() {
                   onChange={(e) => set("flat_delivery_fee", Number(e.target.value))}
                 />
               </Field>
-              <Field id="s-prep" label="Prep time (minutes)">
+              <Field id="s-prep" label="Time to get an order ready (minutes)">
                 <Input
                   id="s-prep"
                   type="number"

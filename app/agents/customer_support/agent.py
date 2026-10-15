@@ -22,7 +22,7 @@ from services.availability import sold_out_names
 from services.alerts import raise_alert
 from agents.customer_support.prompt import compile_customer_support_prompt
 from agents.customer_support.tools import (
-    get_menu,
+    get_catalog,
     search_uploaded_documents,
     create_order_tool,
     get_order_status_tool,
@@ -51,7 +51,7 @@ ERROR_REPLY = (
 # LLM + Tools
 # ---------------------------------------------------------------------------
 tools = [
-    get_menu,
+    get_catalog,
     search_uploaded_documents,
     create_order_tool,
     get_order_status_tool,

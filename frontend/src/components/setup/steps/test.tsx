@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils"
 
 const SAMPLES = [
   { label: "Say hello", text: "Salam" },
-  { label: "Ask about the menu", text: "menu mein kya kya hai?" },
+  { label: "Ask what you sell", text: "aap ke paas kya kya hai?" },
   { label: "Opening hours", text: "kab tak khula hai?" },
   { label: "Delivery", text: "delivery hoti hai? kahan tak?" },
   { label: "Test order", text: "2 burger bhej do, Gulberg 3, cash on delivery" },
@@ -35,7 +35,7 @@ export function TestStep() {
   const [tried, setTried] = React.useState<Set<string>>(new Set())
   const scrollRef = React.useRef<HTMLDivElement>(null)
 
-  const name = setup.tenant?.business_name ?? "Your restaurant"
+  const name = setup.tenant?.business_name ?? "Your business"
   const initial = name.trim().charAt(0).toUpperCase() || "S"
   const messages: TestChatMessage[] = transcript.data ?? []
 

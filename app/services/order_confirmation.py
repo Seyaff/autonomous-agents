@@ -3,7 +3,7 @@ Customer confirmation for orders.
 
 The agent never places an order on its own. It saves a draft, sends the
 customer a summary with Confirm and Cancel buttons, and the order only goes to
-the restaurant once the customer taps Confirm. This avoids duplicate and
+the business once the customer taps Confirm. This avoids duplicate and
 unwanted orders.
 """
 
@@ -30,17 +30,42 @@ def parse_button(button_id: str) -> Tuple[Optional[str], Optional[str]]:
     return None, None
 
 
+def _where_line(order: Dict[str, Any]) -> str:
+    kind = order.get("order_type") or "delivery"
+    if kind == "booking":
+        return f"Booked for: {order.get('scheduled_for_local')}"
+    if kind == "takeaway":
+        return "Pickup"
+    if kind == "dine_in":
+        return "At our place"
+    return f"Delivery to: {order.get('delivery_address')}"
+
+
 def summary_text(order: Dict[str, Any]) -> str:
     currency = order.get("currency") or ""
     items = "\n".join(f"- {i['quantity']} x {i['name']}" for i in order.get("items", []))
+    fee = float(order.get("delivery_fee") or 0)
+    incl = " (incl. delivery)" if fee > 0 else ""
+    kind = "booking" if order.get("order_type") == "booking" else "order"
     return (
-        f"Please check your order, {order.get('customer_name') or 'there'}:\n"
+        f"Please check your {kind}, {order.get('customer_name') or 'there'}:\n"
         f"{items}\n"
-        f"Delivery to: {order.get('delivery_address')}\n"
+        f"{_where_line(order)}\n"
         f"Payment: {str(order.get('payment_method', 'cod')).upper()}\n"
-        f"Total: {currency} {float(order.get('total_amount', 0)):.2f} (incl. delivery)\n\n"
+        f"Total: {currency} {float(order.get('total_amount', 0)):.2f}{incl}\n\n"
         "Tap Confirm to place it, or Cancel."
     )
+
+
+def confirmed_text(order: Dict[str, Any]) -> str:
+    """What the customer reads once they tap Confirm."""
+    total = f"{order.get('currency', '')} {float(order.get('total_amount', 0)):.2f}"
+    kind = order.get("order_type") or "delivery"
+    if kind == "booking":
+        return f"Booking confirm ho gayi: {order['order_id']}, {order.get('scheduled_for_local')}. {total}. Shukriya!"
+    if kind == "delivery":
+        return f"Order confirm ho gaya: {order['order_id']}. {total}, about {order.get('eta_minutes', 30)} minutes. Shukriya!"
+    return f"Order confirm ho gaya: {order['order_id']}. {total}. Shukriya!"
 
 
 def _resolve(tenant: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
@@ -152,9 +177,5 @@ async def handle_tap(db, tenant: Dict[str, Any], customer_phone: str, button_id:
         await broadcast_order_update(tenant_id=tenant_id, event_type="order.created", order_data=order)
     except Exception as e:
         logger.warning(f"Could not broadcast confirmed order {order_id}: {e}")
-    await _reply(
-        db, tenant, customer_phone,
-        f"Order confirm ho gaya: {order_id}. {order.get('currency', '')} {float(order.get('total_amount', 0)):.2f}, "
-        f"about {order.get('eta_minutes', 30)} minutes. Shukriya!",
-    )
+    await _reply(db, tenant, customer_phone, confirmed_text(order))
     return "confirmed"

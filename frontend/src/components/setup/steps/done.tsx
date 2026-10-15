@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog"
 
 const LABELS: Record<string, string> = {
-  menu: "Upload your menu",
+  menu: "Add your catalog",
   whatsapp: "Connect WhatsApp",
 }
 
