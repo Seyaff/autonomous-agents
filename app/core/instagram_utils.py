@@ -79,8 +79,32 @@ def _error(response: httpx.Response) -> tuple:
         return None, response.text
 
 
+def _detail(response: httpx.Response) -> str:
+    """Meta's error with its codes, for the logs and for an owner to pass on to support."""
+    try:
+        err = response.json().get("error") or {}
+    except ValueError:
+        return f"HTTP {response.status_code}: {response.text[:200]}"
+    if not isinstance(err, dict):
+        return f"HTTP {response.status_code}: {err}"
+    parts = [f"HTTP {response.status_code}", f"code {err.get('code')}"]
+    if err.get("error_subcode"):
+        parts.append(f"subcode {err['error_subcode']}")
+    if err.get("fbtrace_id"):
+        parts.append(f"trace {err['fbtrace_id']}")
+    return f"{err.get('message') or response.text[:200]} ({', '.join(parts)})"
+
+
+def _token_shape(token: str) -> str:
+    """What kind of token this is, without logging the token."""
+    token = token or ""
+    return f"{token[:4]}... ({len(token)} chars)" if token else "empty"
+
+
 async def exchange_code(code: str) -> Dict[str, Any]:
     """Code from the login redirect -> short-lived token. Raises ValueError with Meta's message."""
+    # Instagram appends "#_" to the code in the redirect; some browsers pass it through.
+    code = (code or "").split("#")[0]
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(TOKEN_URL, data={
             "client_id": settings.INSTAGRAM_APP_ID,
@@ -90,26 +114,38 @@ async def exchange_code(code: str) -> Dict[str, Any]:
             "code": code,
         })
     if response.status_code != 200:
+        logger.warning(f"[instagram] code exchange failed: {_detail(response)}")
         _, message = _error(response)
         raise ValueError(f"Instagram didn't accept the sign-in: {message}")
     data = response.json()
     # Some responses wrap it in a "data" list.
     if isinstance(data.get("data"), list) and data["data"]:
-        return data["data"][0]
+        data = data["data"][0]
+    logger.info(f"[instagram] code exchange ok: token {_token_shape(data.get('access_token'))}, keys {sorted(data)}")
     return data
 
 
 async def long_lived_token(short_token: str) -> Dict[str, Any]:
-    """Short-lived token -> 60-day token. Returns {"access_token", "expires_in"}."""
+    """Short-lived token -> 60-day token. Returns {"access_token", "expires_in"}.
+    Meta documents this as a GET; some apps are only served a POST, so a refused GET is tried once more as a POST."""
+    params = {
+        "grant_type": "ig_exchange_token",
+        "client_secret": settings.INSTAGRAM_APP_SECRET,
+        "access_token": short_token,
+    }
+    url = f"{IG_GRAPH_UNVERSIONED}/access_token"
     async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.get(f"{IG_GRAPH_UNVERSIONED}/access_token", params={
-            "grant_type": "ig_exchange_token",
-            "client_secret": settings.INSTAGRAM_APP_SECRET,
-            "access_token": short_token,
-        })
+        response = await client.get(url, params=params)
+        if response.status_code != 200:
+            logger.warning(f"[instagram] long-lived token GET failed for token {_token_shape(short_token)}: {_detail(response)}")
+            response = await client.post(url, data=params)
+            if response.status_code != 200:
+                logger.warning(f"[instagram] long-lived token POST failed: {_detail(response)}")
+                # Last try on the versioned host, which serves the same exchange.
+                response = await client.get(f"{IG_GRAPH}/access_token", params=params)
     if response.status_code != 200:
-        _, message = _error(response)
-        raise ValueError(f"Instagram didn't give a lasting token: {message}")
+        logger.warning(f"[instagram] long-lived token versioned GET failed: {_detail(response)}")
+        raise ValueError(f"Instagram didn't give a lasting token: {_detail(response)}")
     return response.json()
 
 

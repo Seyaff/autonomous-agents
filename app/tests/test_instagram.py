@@ -260,3 +260,29 @@ def test_prompt_on_instagram_asks_for_a_phone_and_skips_forms():
     assert "talking to customers on Instagram" in prompt
     assert "`contact_phone`" in prompt
     assert "INSTAGRAM:" not in compile_customer_support_prompt(tenant, "")
+
+
+def test_a_refused_token_get_is_retried_as_a_post(monkeypatch):
+    import httpx
+    from core import instagram_utils
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(400, json={"error": {"message": "Unsupported request - method type: get", "code": 100}})
+        return httpx.Response(200, json={"access_token": "IGAAlong", "expires_in": 5184000})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(instagram_utils.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+
+    token = asyncio.run(instagram_utils.long_lived_token("IGAAshort"))
+    assert token["access_token"] == "IGAAlong" and calls == ["GET", "POST"]
+
+
+def test_pasted_settings_lose_a_stray_equals_sign():
+    from core.settings import Settings
+
+    cleaned = Settings(PUBLIC_API_BASE="=https://x.example/api/v1 ", INSTAGRAM_APP_SECRET=' ="abc" ')
+    assert cleaned.PUBLIC_API_BASE == "https://x.example/api/v1" and cleaned.INSTAGRAM_APP_SECRET == "abc"
