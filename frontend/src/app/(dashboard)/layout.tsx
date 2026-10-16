@@ -10,6 +10,8 @@ import { useAuth } from "@/components/providers/auth-provider"
 import { useInboxSocket } from "@/hooks/inbox/use-inbox-socket"
 import { BillingBanner } from "@/components/billing/billing-banner"
 import { USE_MOCKS } from "@/lib/mocks"
+import { AssistantProvider } from "@/components/assistant/assistant-provider"
+import { AssistantPanel } from "@/components/assistant/assistant-panel"
 
 export default function DashboardLayout({
   children,
@@ -19,9 +21,11 @@ export default function DashboardLayout({
   const { isAuthenticated, isFounder, activeTenantId } = useAuth()
   // Mock mode simulates live updates locally (lunch-rush replay, Step 3) —
   // no real websocket in that mode. No socket until the owner has a restaurant.
-  useInboxSocket(!USE_MOCKS && isAuthenticated && !isFounder && !!activeTenantId)
+  const isOwner = !USE_MOCKS && isAuthenticated && !isFounder && !!activeTenantId
+  useInboxSocket(isOwner)
 
   return (
+    <AssistantProvider enabled={isOwner}>
     <SidebarProvider>
       <meta name="robots" content="noindex, nofollow" />
       <AppSidebar />
@@ -32,6 +36,8 @@ export default function DashboardLayout({
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
         </div>
       </SidebarInset>
+      {isOwner && <AssistantPanel />}
     </SidebarProvider>
+    </AssistantProvider>
   )
 }

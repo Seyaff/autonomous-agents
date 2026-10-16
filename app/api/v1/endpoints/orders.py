@@ -1,19 +1,12 @@
 import logging
-from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from core.database import get_database
-from core.events import broadcast_order_update
 from middlewares.auth_middleware import require_owner
-from services.order_service import (
-    ORDER_STATUSES,
-    is_valid_transition,
-    notify_customer_status,
-    parse_range_bound,
-    tenant_timezone,
-)
+from services.order_service import parse_range_bound, tenant_timezone
+from services.owner_actions import ActionError, change_order_status
 
 logger = logging.getLogger(__name__)
 
@@ -183,52 +176,14 @@ async def update_order_status(
             detail="No active tenant linked to your account. Please complete onboarding."
         )
 
-    order = await db["orders"].find_one({"order_id": order_id, "tenant_id": tenant_id})
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    new_status = payload.status.lower()
-    if new_status not in ORDER_STATUSES:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {list(ORDER_STATUSES)}")
-
-    current_status = order.get("status", "pending")
-    if not is_valid_transition(current_status, new_status):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot move order from '{current_status}' to '{new_status}'.",
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+    try:
+        order, customer_notified = await change_order_status(
+            db, tenant, order_id, payload.status, current_user.get("user_id"), notes=payload.notes
         )
-
-    now = datetime.now(timezone.utc)
-    tenant = await db["tenants"].find_one({"tenant_id": tenant_id})
-    customer_notified = await notify_customer_status(
-        db, tenant or {"tenant_id": tenant_id}, order, new_status
-    )
-
-    history_entry = {
-        "status": new_status,
-        "at": now,
-        "by": "owner",
-        "by_user_id": current_user.get("user_id"),
-        "customer_notified": customer_notified,
-    }
-    update_doc: Dict[str, Any] = {"status": new_status, "updated_at": now}
-    if payload.notes:
-        update_doc["admin_notes"] = payload.notes
-
-    await db["orders"].update_one(
-        {"order_id": order_id, "tenant_id": tenant_id},
-        {"$set": update_doc, "$push": {"status_history": history_entry}},
-    )
-
-    order.update(update_doc)
-    order.setdefault("status_history", []).append(history_entry)
-    order.pop("_id", None)
-
-    await broadcast_order_update(
-        tenant_id=tenant_id,
-        event_type="order.updated",
-        order_data=order
-    )
+    except ActionError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    new_status = order["status"]
 
     return {
         "status": "success",

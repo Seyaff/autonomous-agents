@@ -1,167 +1,62 @@
 """
-The owner's assistant on the settings page. The owner says what to change in plain words. The assistant
-makes the change through the same saves the settings screens use, so every change is checked and logged,
-then tells the owner what changed.
+The owner's agent: one text box that runs the business. The owner asks a question or says what to change, in plain
+words. The agent reads and changes things with the tools in services.assistant_tools, which go through the same
+services as the dashboard screens, so every change is checked and logged.
+
+Replies stream to the panel as events: text tokens, each tool step as it starts and ends, saved changes, actions
+waiting for the owner's Confirm, and pages to open.
 """
 
 import logging
-import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
-from pydantic import ValidationError
 
 from core.llm import get_chat_model, is_rate_limit
 from core.settings import settings
-from core.setup_state import AgentSettings
-from services.availability import MENU_ITEMS, today_for
-from services.menu_view import menu_text
-from services.tenant_settings import (
-    TenantUpdatePayload,
-    apply_agent_settings,
-    apply_tenant_update,
-    log_changes,
-)
+from services.assistant_tools import ACTIONS, Turn, decide_action, make_tools
+from services.order_service import tenant_timezone
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are the settings assistant for the owner of {business}. The owner tells you in plain words what to change. You make the change with your tools, then tell them what changed.
+SYSTEM_PROMPT = """You are the operator agent inside the dashboard of {business}. The owner types to you in plain words, and you run
+the business for them with your tools: answer questions with real numbers, change settings and the catalog, move orders on,
+look into customer chats, and prepare messages, templates and campaigns.
 
-Rules:
-- Apply clear requests right away with the tools. Don't ask for confirmation for normal settings.
-- Call get_business_settings when you need current values before you change something.
-- The business description is what the customer agent works from. When the owner tells you something about the business
-  (what it sells, how it works, its policies), offer to add it to the description, and update it with update_business_settings.
-- If a request is unclear (for example, which days a time applies to), ask one short question instead of guessing.
-- Pausing the customer agent stops replies to every customer. Call set_agent_enabled without confirmed first, and only pass confirmed=true after the owner has clearly said yes.
-- Before marking an item unavailable, call list_catalog so you use the exact item name.
+Right now it is {now} for the business. Prices are in {currency}.
+What the business does: {description}
+
+How to work:
+- Use the tools for every fact. Never guess a number, a name, an order or what a customer said. If the tools don't have it, say so.
+- Do clear requests right away. Several steps in one request are fine: do them all, in order.
+- Read before you change: look up the item, order or chat first so you use exact names and ids.
+- If a request could mean two different things, ask one short question instead of guessing.
+- Some tools only prepare an action and show the owner a Confirm button: messages to customers, campaigns, new templates,
+  forms, cancelling orders, deleting items and pausing the agent. Say in one sentence what will happen when they press it.
+  Never say it is done before they confirm.
+- The business description is what the customer agent works from. When the owner tells you something lasting about the business
+  (what it sells, prices policy, how it works), offer to add it to the description.
+- Only call open_page when the owner asks to see or go to something.
 - Change only what the owner asked for.
-- After making changes, reply with a short list of what changed, as "old -> new".
+
+How to reply:
+- Short and direct, like a sharp colleague. Lead with the answer.
+- Plain text. Use "- " lists for several items and keep each line short. No tables or headings.
+- After changes, list them as "old -> new".
 - Reply in the language the owner writes in (English or Roman Urdu).
-- Never invent a setting or a value. If a tool says something wasn't saved, say so."""
+- If a tool says something wasn't saved or failed, say so plainly."""
 
-
-def _current_settings(tenant: Dict[str, Any]) -> Dict[str, Any]:
-    delivery = tenant.get("delivery_settings") or {}
-    return {
-        "business_name": tenant.get("business_name"),
-        "business_description": tenant.get("business_description") or "",
-        "business_phone": tenant.get("business_phone"),
-        "address": tenant.get("address"),
-        "currency": tenant.get("currency"),
-        "timezone": tenant.get("timezone"),
-        "flat_delivery_fee": delivery.get("flat_delivery_fee"),
-        "avg_prep_time_minutes": delivery.get("avg_prep_time_minutes"),
-        "min_order_amount": tenant.get("min_order_amount"),
-        "operating_hours": tenant.get("operating_hours") or [],
-        "delivery_areas": tenant.get("delivery_areas") or [],
-        "payment_methods": tenant.get("payment_methods") or [],
-        "order_types": tenant.get("order_types") or [],
-        "reply_settings": tenant.get("agent_settings") or {},
-        "agent_enabled": tenant.get("agent_enabled", True),
-    }
+TRANSCRIPT = "assistant_messages"
+HISTORY_TURNS = 20
+APOLOGY = "Sorry, I couldn't do that just now. Please try again in a moment."
 
 
 def _make_tools(db, tenant_id: str, user_id: Any, applied: List[Dict[str, Any]]):
-    """The tools close over this turn's tenant and user, so the model can't touch another business."""
-
-    async def _tenant() -> Dict[str, Any]:
-        return await db.tenants.find_one({"tenant_id": tenant_id}) or {}
-
-    @tool
-    async def get_business_settings() -> dict:
-        """Current settings: name, description of the business, phone, address, currency, timezone, delivery fee, prep time, minimum order,
-        opening hours, delivery areas, payment methods, order types, reply settings, and whether the agent is on."""
-        return _current_settings(await _tenant())
-
-    @tool
-    async def update_business_settings(changes: dict) -> str:
-        """Change business settings. Pass only the fields to change. Keys: business_name, business_description
-        (what the business does, in plain words; pass the whole new text), business_phone, address,
-        currency, timezone, flat_delivery_fee, avg_prep_time_minutes, min_order_amount, operating_hours (all 7 days,
-        each {"day": "mon", "open": "12:00", "close": "23:30", "closed": false}), delivery_areas (list of text),
-        payment_methods (cash_on_delivery, card_on_delivery, bank_transfer), order_types (delivery, takeaway = pickup,
-        dine_in = at the business's place, booking = appointment at a set time)."""
-        unknown = set(changes) - set(TenantUpdatePayload.model_fields)
-        if unknown:
-            return f"Not saved. Unknown setting: {', '.join(sorted(unknown))}."
-        try:
-            payload = TenantUpdatePayload(**changes)
-        except ValidationError as e:
-            return f"Not saved. {e.errors()[0]['msg']}"
-        try:
-            done = await apply_tenant_update(db, tenant_id, payload, user_id=user_id, source="assistant")
-        except ValueError as e:
-            return f"Not saved. {e}"
-        applied.extend(done)
-        return "Saved." if done else "Nothing changed; those values were already set."
-
-    @tool
-    async def update_reply_settings(changes: dict) -> str:
-        """Change how the agent replies. Keys: language ("match" to follow the customer, "en", or "roman_urdu"),
-        tone ("warm", "professional" or "short"), greeting (text, or empty to clear), and escalate_on (an object with
-        refund, complaint and human_requested as true/false, and large_order_over as a number or null) for the
-        situations that go to the owner."""
-        unknown = set(changes) - set(AgentSettings.model_fields)
-        if unknown:
-            return f"Not saved. Unknown setting: {', '.join(sorted(unknown))}."
-        current = (await _tenant()).get("agent_settings") or {}
-        merged = {**current, **changes}
-        if "escalate_on" in changes:
-            merged["escalate_on"] = {**(current.get("escalate_on") or {}), **(changes["escalate_on"] or {})}
-        try:
-            new_settings = AgentSettings(**merged)
-        except ValidationError as e:
-            return f"Not saved. {e.errors()[0]['msg']}"
-        done = await apply_agent_settings(db, tenant_id, new_settings, user_id=user_id, source="assistant")
-        applied.extend(done)
-        return "Saved." if done else "Nothing changed; those values were already set."
-
-    @tool
-    async def set_agent_enabled(enabled: bool, confirmed: bool = False) -> str:
-        """Turn the customer agent on or off for every customer. Turning it off stops all replies, so pass
-        confirmed=true only after the owner has clearly said yes."""
-        now = datetime.now(timezone.utc)
-        current = (await _tenant()).get("agent_enabled", True)
-        if current == enabled:
-            return "Already set."
-        if not enabled and not confirmed:
-            return ("Not changed. Ask the owner to confirm they want the agent paused for all customers, "
-                    "then call this again with confirmed=true.")
-        await db.tenants.update_one({"tenant_id": tenant_id}, {"$set": {"agent_enabled": enabled, "updated_at": now}})
-        change = {"field": "agent_enabled", "before": current, "after": enabled}
-        await log_changes(db, tenant_id, user_id, "assistant", [change], now)
-        applied.append(change)
-        return "The agent is on again." if enabled else "The agent is paused for all customers."
-
-    @tool
-    async def list_catalog(category: str = "") -> str:
-        """What the business sells, grouped by category, with prices and what's unavailable today. Use it to match
-        the owner's words to exact item names. Pass a category name to narrow it."""
-        return await menu_text(db, await _tenant(), category or None) or "There is no catalog yet."
-
-    @tool
-    async def set_item_unavailable(name: str, sold_out: bool) -> str:
-        """Mark an item unavailable (sold out) for today, or available again. Use the exact item name from list_catalog."""
-        now = datetime.now(timezone.utc)
-        name = (name or "").strip()
-        if not name:
-            return "Not saved. Name the item."
-        tenant = await _tenant()
-        match = {"tenant_id": tenant_id, "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}
-        update = {"$set": {"sold_out_on": today_for(tenant)}} if sold_out else {"$unset": {"sold_out_on": ""}}
-        result = await db[MENU_ITEMS].update_many(match, update)
-        if result.matched_count == 0:
-            return f"No item named {name} in the catalog. Check the spelling with list_catalog."
-        change = {"field": "menu.sold_out", "before": None, "after": name if sold_out else None}
-        await log_changes(db, tenant_id, user_id, "assistant", [change], now)
-        applied.append(change)
-        return f"{name} is unavailable today." if sold_out else f"{name} is available again."
-
-    return [get_business_settings, update_business_settings, update_reply_settings, set_agent_enabled, list_catalog, set_item_unavailable]
+    """The tools for one turn, recording saved changes in applied."""
+    return make_tools(db, tenant_id, user_id, Turn(applied=applied))
 
 
 def _agent(provider: str, tools: List[Any]):
@@ -169,102 +64,125 @@ def _agent(provider: str, tools: List[Any]):
     return create_react_agent(model=model, tools=tools)
 
 
-def _last_reply(messages: List[BaseMessage]) -> str:
-    for msg in reversed(messages):
-        if not isinstance(msg, AIMessage) or not msg.content:
-            continue
-        if isinstance(msg.content, str):
-            return msg.content.strip()
-        text = "".join(part.get("text", "") for part in msg.content if isinstance(part, dict))
-        if text.strip():
-            return text.strip()
-    return ""
-
-
-async def run_owner_turn(db, tenant_id: str, user_id: Any, message: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
-    """One turn of the owner's chat. Returns the reply and the list of changes that were saved."""
-    tenant = await db.tenants.find_one({"tenant_id": tenant_id}) or {}
-    applied: List[Dict[str, Any]] = []
-    tools = _make_tools(db, tenant_id, user_id, applied)
-
-    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.format(business=tenant.get("business_name") or "the business"))]
-    for turn in history[-20:]:
-        cls = HumanMessage if turn["role"] == "owner" else AIMessage
-        messages.append(cls(content=turn["content"]))
-    messages.append(HumanMessage(content=message))
-
-    primary = settings.LLM_PROVIDER.lower()
-    fallback = (settings.LLM_FALLBACK_PROVIDER or "").lower()
+def system_prompt(tenant: Dict[str, Any], now: Optional[datetime] = None) -> str:
+    now = now or datetime.now(timezone.utc)
     try:
-        try:
-            result = await _agent(primary, tools).ainvoke({"messages": messages})
-        except Exception as e:
-            if not fallback or fallback == primary or not is_rate_limit(e):
-                raise
-            logger.warning(f"[owner-assistant] {primary} is rate-limited; retrying this turn on {fallback}: {type(e).__name__}")
-            result = await _agent(fallback, tools).ainvoke({"messages": messages})
-    except Exception as e:
-        logger.exception(f"[owner-assistant] turn failed for {tenant_id}: {e}")
-        return {"reply": "Sorry, I couldn't do that just now. Please try again in a moment.", "changes": applied}
-
-    reply = _last_reply(result.get("messages", [])) or "Done."
-    return {"reply": reply, "changes": applied}
+        local = now.astimezone(ZoneInfo(tenant_timezone(tenant)))
+    except Exception:
+        local = now
+    description = (tenant.get("business_description") or "").strip() or "Not written yet."
+    if len(description) > 600:
+        description = description[:597] + "..."
+    return SYSTEM_PROMPT.format(
+        business=tenant.get("business_name") or "the business",
+        now=local.strftime("%A %d %B %Y, %I:%M %p"),
+        currency=tenant.get("currency") or "the local currency",
+        description=description,
+    )
 
 
 # ---------------------------------------------------------------------------
-# The chat page: saved conversation, streamed replies.
+# The saved conversation
 # ---------------------------------------------------------------------------
-TRANSCRIPT = "assistant_messages"
-HISTORY_TURNS = 20
-APOLOGY = "Sorry, I couldn't do that just now. Please try again in a moment."
-
-
 async def load_transcript(db, tenant_id: str, user_id: Any, limit: int = 50) -> List[Dict[str, Any]]:
-    """The saved conversation for this owner, oldest first."""
+    """The saved conversation for this owner, oldest first. Actions carry their latest status."""
     rows = await db[TRANSCRIPT].find(
         {"tenant_id": tenant_id, "user_id": user_id},
-        {"_id": 0, "role": 1, "content": 1, "changes": 1, "at": 1},
-    ).sort([("at", -1)]).to_list(length=limit)
+        {"_id": 0, "role": 1, "content": 1, "changes": 1, "actions": 1, "at": 1},
+    # _id breaks ties between turns saved within the same clock tick, so they keep the order they were said in.
+    ).sort([("at", -1), ("_id", -1)]).to_list(length=limit)
     rows.reverse()
+    ids = [a["action_id"] for r in rows for a in r.get("actions") or []]
+    if ids:
+        latest = {
+            a["action_id"]: a
+            for a in await db[ACTIONS].find({"tenant_id": tenant_id, "action_id": {"$in": ids}}).to_list(length=len(ids))
+        }
+        for r in rows:
+            for a in r.get("actions") or []:
+                saved = latest.get(a["action_id"]) or {}
+                a["status"] = saved.get("status", a.get("status"))
+                if saved.get("result"):
+                    a["result"] = saved["result"]
     return rows
 
 
-async def save_turn(db, tenant_id: str, user_id: Any, role: str, content: str, changes: Optional[List[Dict[str, Any]]] = None) -> None:
+async def save_turn(db, tenant_id: str, user_id: Any, role: str, content: str,
+                    changes: Optional[List[Dict[str, Any]]] = None,
+                    actions: Optional[List[Dict[str, Any]]] = None) -> None:
     await db[TRANSCRIPT].insert_one({
         "tenant_id": tenant_id,
         "user_id": user_id,
         "role": role,
         "content": content,
         "changes": changes or [],
+        "actions": actions or [],
         "at": datetime.now(timezone.utc),
     })
 
 
+async def clear_transcript(db, tenant_id: str, user_id: Any) -> None:
+    await db[TRANSCRIPT].delete_many({"tenant_id": tenant_id, "user_id": user_id})
+
+
+async def decide(db, tenant_id: str, user_id: Any, action_id: str, confirm: bool) -> Dict[str, Any]:
+    """The owner pressed Confirm or Cancel on an action card. The result is added to the conversation,
+    so the agent knows about it on the next turn."""
+    outcome = await decide_action(db, tenant_id, user_id, action_id, confirm)
+    if outcome["status"] in ("done", "failed", "cancelled", "expired"):
+        await save_turn(db, tenant_id, user_id, "assistant", outcome["message"], changes=outcome["changes"])
+    return outcome
+
+
+# ---------------------------------------------------------------------------
+# One streamed turn
+# ---------------------------------------------------------------------------
 def _text_of(chunk: Any) -> str:
     content = getattr(chunk, "content", "")
     if isinstance(content, str):
         return content
-    return "".join(part.get("text", "") for part in content if isinstance(part, dict))
+    return "".join(part.get("text", "") for part in content if isinstance(part, dict) and part.get("type", "text") == "text")
+
+
+def _build_messages(tenant: Dict[str, Any], prior: List[Dict[str, Any]], message: str) -> List[BaseMessage]:
+    messages: List[BaseMessage] = [SystemMessage(content=system_prompt(tenant))]
+    for turn in prior:
+        content = turn["content"]
+        pending = [a for a in turn.get("actions") or [] if a.get("status") == "pending"]
+        if pending:
+            content += "\n(Still waiting for the owner to confirm: " + "; ".join(a["summary"] for a in pending) + ")"
+        cls = HumanMessage if turn["role"] == "owner" else AIMessage
+        messages.append(cls(content=content))
+    messages.append(HumanMessage(content=message))
+    return messages
 
 
 async def stream_owner_turn(db, tenant_id: str, user_id: Any, message: str):
-    """Runs one turn and yields events as they happen: text tokens, tool steps, saved changes, then done.
-    Each event is a dict with a "type". The turn and its reply are saved when it finishes."""
+    """Runs one turn and yields events as they happen. Each event is a dict with a "type":
+    token (text), tool (a step started: id, name), tool_end (id, name), change (a saved change),
+    confirm (an action waiting for the owner), navigate (href), error, and finally done (reply).
+    The turn and its reply are saved when it finishes."""
     tenant = await db.tenants.find_one({"tenant_id": tenant_id}) or {}
     history = await load_transcript(db, tenant_id, user_id, limit=HISTORY_TURNS)
-    prior = [{"role": r["role"], "content": r["content"]} for r in history]
     await save_turn(db, tenant_id, user_id, "owner", message)
 
-    applied: List[Dict[str, Any]] = []
-    tools = _make_tools(db, tenant_id, user_id, applied)
-    messages = _build_messages(tenant, prior, message)
+    turn = Turn()
+    tools = make_tools(db, tenant_id, user_id, turn)
+    messages = _build_messages(tenant, history, message)
     providers = [settings.LLM_PROVIDER.lower()]
     fallback = (settings.LLM_FALLBACK_PROVIDER or "").lower()
     if fallback and fallback != providers[0]:
         providers.append(fallback)
 
     reply_parts: List[str] = []
-    sent = 0
+    sent = {"change": 0, "confirm": 0, "navigate": 0}
+
+    def pending_events():
+        for kind, items, key in (("change", turn.applied, "change"), ("confirm", turn.actions, "action"), ("navigate", turn.pages, "href")):
+            while sent[kind] < len(items):
+                yield {"type": kind, key: items[sent[kind]]}
+                sent[kind] += 1
+
     failed = False
     for index, provider in enumerate(providers):
         started = False
@@ -279,10 +197,15 @@ async def stream_owner_turn(db, tenant_id: str, user_id: Any, message: str):
                         yield {"type": "token", "text": text}
                 elif kind == "on_tool_start":
                     started = True
-                    yield {"type": "tool", "name": event["name"]}
-                while sent < len(applied):
-                    yield {"type": "change", "change": applied[sent]}
-                    sent += 1
+                    yield {"type": "tool", "name": event["name"], "id": event.get("run_id") or event["name"]}
+                elif kind == "on_tool_end":
+                    yield {"type": "tool_end", "name": event["name"], "id": event.get("run_id") or event["name"]}
+                elif kind == "on_chat_model_start" and reply_parts:
+                    # A new model call after tools: keep its text apart from what came before.
+                    reply_parts.append("\n\n")
+                    yield {"type": "token", "text": "\n\n"}
+                for out in pending_events():
+                    yield out
             break
         except Exception as e:
             can_retry = not started and index + 1 < len(providers) and is_rate_limit(e)
@@ -293,21 +216,11 @@ async def stream_owner_turn(db, tenant_id: str, user_id: Any, message: str):
             failed = True
             break
 
-    while sent < len(applied):
-        yield {"type": "change", "change": applied[sent]}
-        sent += 1
+    for out in pending_events():
+        yield out
     if failed:
         reply_parts = [APOLOGY]
         yield {"type": "error", "message": APOLOGY}
-    reply = "".join(reply_parts).strip() or "Done."
-    await save_turn(db, tenant_id, user_id, "assistant", reply, changes=applied)
+    reply = "".join(reply_parts).strip() or ("Waiting for your go-ahead." if turn.actions else "Done.")
+    await save_turn(db, tenant_id, user_id, "assistant", reply, changes=turn.applied, actions=turn.actions)
     yield {"type": "done", "reply": reply}
-
-
-def _build_messages(tenant: Dict[str, Any], prior: List[Dict[str, str]], message: str) -> List[BaseMessage]:
-    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.format(business=tenant.get("business_name") or "the business"))]
-    for turn in prior:
-        cls = HumanMessage if turn["role"] == "owner" else AIMessage
-        messages.append(cls(content=turn["content"]))
-    messages.append(HumanMessage(content=message))
-    return messages

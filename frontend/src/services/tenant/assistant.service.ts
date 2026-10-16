@@ -6,32 +6,63 @@ export interface AssistantChange {
   after: unknown
 }
 
+/** Something the agent prepared that only happens when the owner presses Confirm. */
+export interface AssistantAction {
+  action_id: string
+  kind: string
+  summary: string
+  detail: string
+  confirm_label: string
+  status: "pending" | "done" | "failed" | "cancelled" | "expired"
+  result?: string
+}
+
 export interface AssistantMessage {
   role: "owner" | "assistant"
   content: string
   changes?: AssistantChange[]
+  actions?: AssistantAction[]
   at?: string
 }
 
 // What the server streams back for one turn.
 export type AssistantEvent =
   | { type: "token"; text: string }
-  | { type: "tool"; name: string }
+  | { type: "tool"; name: string; id: string }
+  | { type: "tool_end"; name: string; id: string }
   | { type: "change"; change: AssistantChange }
+  | { type: "confirm"; action: AssistantAction }
+  | { type: "navigate"; href: string }
   | { type: "error"; message: string }
   | { type: "done"; reply: string }
+
+export interface ActionOutcome {
+  status: AssistantAction["status"]
+  message: string
+  changes: AssistantChange[]
+}
 
 export const loadAssistantHistory = async (): Promise<AssistantMessage[]> => {
   const response = await API.get<{ messages: AssistantMessage[] }>("/tenant/current/assistant/history")
   return response.data.messages
 }
 
-async function postTurn(message: string): Promise<Response> {
+export const clearAssistantHistory = async () => {
+  await API.delete("/tenant/current/assistant/history")
+}
+
+export const decideAssistantAction = async (actionId: string, confirm: boolean): Promise<ActionOutcome> => {
+  const response = await API.post<ActionOutcome>(`/tenant/current/assistant/actions/${actionId}`, { confirm }, { timeout: 60_000 })
+  return response.data
+}
+
+async function postTurn(message: string, signal?: AbortSignal): Promise<Response> {
   const init: RequestInit = {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }),
+    signal,
   }
   let res = await fetch("/api/tenant/current/assistant/stream", init)
   if (res.status === 401) {
@@ -43,8 +74,12 @@ async function postTurn(message: string): Promise<Response> {
 }
 
 // Sends one message and calls onEvent for each piece of the reply as it arrives.
-export async function streamAssistantTurn(message: string, onEvent: (event: AssistantEvent) => void): Promise<void> {
-  const res = await postTurn(message)
+export async function streamAssistantTurn(
+  message: string,
+  onEvent: (event: AssistantEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await postTurn(message, signal)
   if (!res.ok || !res.body) throw new Error(`The assistant isn't available right now (${res.status}).`)
 
   const reader = res.body.getReader()

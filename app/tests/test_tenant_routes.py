@@ -12,5 +12,6 @@ def test_tenant_routes_load_and_include_the_assistant_and_agent_toggle():
     paths = {r.path for r in tenant.tenant_routes.routes}
     assert "/tenant/current/assistant/stream" in paths
     assert "/tenant/current/assistant/history" in paths
+    assert "/tenant/current/assistant/actions/{action_id}" in paths
     assert "/tenant/current/agent" in paths
     assert "/tenant/current/agent-settings" in paths

@@ -313,6 +313,45 @@ async def owner_assistant_stream(
     )
 
 
+class AssistantDecision(BaseModel):
+    confirm: bool
+
+
+@tenant_routes.post("/current/assistant/actions/{action_id}")
+async def owner_assistant_decide(
+    action_id: str,
+    payload: AssistantDecision,
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """The owner pressed Confirm or Cancel on something the assistant prepared (a message, a campaign, a cancellation).
+    Confirm runs it; the result is added to the conversation."""
+    from services.owner_assistant import decide
+
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+    outcome = await decide(db, tenant_id, current_user.get("user_id"), action_id, payload.confirm)
+    if outcome["status"] == "missing":
+        raise HTTPException(status_code=404, detail=outcome["message"])
+    return outcome
+
+
+@tenant_routes.delete("/current/assistant/history")
+async def owner_assistant_clear(
+    db=Depends(get_database),
+    current_user: dict = Depends(require_owner),
+):
+    """Starts the owner's conversation with the assistant over."""
+    from services.owner_assistant import clear_transcript
+
+    tenant_id = current_user.get("active_tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No active tenant found.")
+    await clear_transcript(db, tenant_id, current_user.get("user_id"))
+    return {"status": "cleared"}
+
+
 @tenant_routes.patch("/current/agent")
 async def set_agent_enabled(
     payload: AgentTogglePayload,
