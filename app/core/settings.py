@@ -1,6 +1,6 @@
 import os
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -137,6 +137,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
+
+    @field_validator("PUBLIC_API_BASE", "INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET", "INSTAGRAM_VERIFY_TOKEN", mode="before")
+    @classmethod
+    def _clean_pasted(cls, value):
+        # Pasting "NAME=value" into a hosting dashboard's value box leaves a leading "=" (and often spaces or quotes),
+        # which Meta then rejects as a bad redirect or secret.
+        if isinstance(value, str):
+            value = value.strip().lstrip("=").strip().strip('"').strip("'").strip()
+        return value
 
 
 settings = Settings()
