@@ -101,20 +101,25 @@ def test_unknown_setting_is_refused_with_a_message():
     assert db.tenants.docs[0]["delivery_settings"]["flat_delivery_fee"] == 100
 
 
-def test_pausing_the_agent_needs_confirmation():
+def test_pausing_the_agent_waits_for_the_confirm_button():
+    from services.assistant_tools import decide_action
+    from tests.fake_mongo import FakeCollection as Store
+
     db = make_db()
+    db["assistant_actions"] = Store()
     applied = []
     tools = _make_tools(db, TENANT_ID, "u1", applied)
     toggle = next(t for t in tools if t.name == "set_agent_enabled")
     reply = asyncio.run(toggle.ainvoke({"enabled": False}))
-    assert "Not changed" in reply
+    assert "Confirm" in reply
     assert db.tenants.docs[0]["agent_enabled"] is True
     assert applied == []
 
-    reply = asyncio.run(toggle.ainvoke({"enabled": False, "confirmed": True}))
-    assert "paused" in reply
+    action = db.assistant_actions.docs[0]
+    outcome = asyncio.run(decide_action(db, TENANT_ID, "u1", action["action_id"], confirm=True))
+    assert outcome["status"] == "done"
     assert db.tenants.docs[0]["agent_enabled"] is False
-    assert applied == [{"field": "agent_enabled", "before": True, "after": False}]
+    assert outcome["changes"] == [{"field": "agent_enabled", "before": True, "after": False}]
 
 
 def test_reply_settings_merge_with_what_is_already_saved():

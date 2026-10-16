@@ -109,6 +109,8 @@ async def ensure_webhook_indexes():
     await ensure_campaign_indexes(db)
     from services.menu_jobs import ensure_menu_job_indexes
     await ensure_menu_job_indexes(db)
+    from services.assistant_tools import ensure_assistant_indexes
+    await ensure_assistant_indexes(db)
     print("[memory] customer_facts indexes ensured.")
 
 

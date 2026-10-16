@@ -3,7 +3,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from core.database import get_database
-from services.channels import channel_of, send_text_to
+from services.channels import channel_of
 from services.alerts import raise_alert
 from middlewares.auth_middleware import require_owner
 from repositories.inbox_repo import inbox_repo
@@ -15,6 +15,8 @@ from schemas.inbox import (
     UpdateConversationRequest,
 )
 from services.order_service import customer_in_service_window
+from services.owner_actions import ActionError, owner_reply, set_handover
+from services.owner_actions import resolve_escalation as resolve_escalation_for
 from services.templates import find_template, send_template_message
 
 logger = logging.getLogger(__name__)
@@ -32,9 +34,7 @@ async def _get_owned_conversation(conversation_id: str, tenant_id: str):
 
 
 async def _change_handover(conversation_id: str, tenant_id: str, handled_by: str, user_id: str):
-    conversation = await inbox_repo.set_handover(conversation_id, tenant_id, handled_by, user_id)
-    await broadcast_conversation_updated(tenant_id, conversation)
-    return conversation
+    return await set_handover(tenant_id, conversation_id, handled_by, user_id)
 
 
 @inbox_router.get("/conversations")
@@ -136,8 +136,7 @@ async def resolve_escalation(
     """Clears the 'needs you' flag without changing who is handling the chat."""
     tenant_id = current_user["active_tenant_id"]
     await _get_owned_conversation(conversation_id, tenant_id)
-    conversation = await inbox_repo.resolve_escalation(conversation_id, tenant_id, current_user["user_id"])
-    await broadcast_conversation_updated(tenant_id, conversation)
+    conversation = await resolve_escalation_for(tenant_id, conversation_id, current_user["user_id"])
     return {"status": "success", "conversation": conversation}
 
 
@@ -167,48 +166,13 @@ async def send_message(
     tenant_id = current_user["active_tenant_id"]
     conversation = await _get_owned_conversation(conversation_id, tenant_id)
 
-    if not await customer_in_service_window(db, tenant_id, conversation["customer_phone"]):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "It's been more than 24 hours since this customer wrote. Instagram only allows a reply after they write again."
-                if channel_of(conversation["customer_phone"]) == "instagram"
-                else "It's been more than 24 hours since this customer wrote. WhatsApp only allows a template now."
-            ),
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}) or {"tenant_id": tenant_id}
+    try:
+        sent, message = await owner_reply(
+            db, tenant, conversation, payload.content, current_user["user_id"], message_type=payload.type
         )
-
-    if conversation.get("handled_by") != "owner":
-        await _change_handover(conversation_id, tenant_id, "owner", current_user["user_id"])
-
-    tenant = await db["tenants"].find_one({"tenant_id": tenant_id})
-
-    message = await message_service.persist_outbound(
-        conversation_id=conversation_id,
-        tenant_id=tenant_id,
-        content=payload.content,
-        message_type=payload.type,
-        sender="human",
-    )
-
-    result = await send_text_to(tenant, conversation["customer_phone"], payload.content, db)
-    sent = result.ok
-
-    if message:
-        await message_service.update_outbound_status(
-            message_id=message.message_id,
-            wamid=result.message_id or "",
-            status="sent" if sent else "failed",
-        )
-    if not sent:
-        await raise_alert(
-            db,
-            tenant_id,
-            kind="owner_message_not_sent",
-            title="Your reply wasn't delivered",
-            detail=f"{conversation['customer_phone']}: {result.error_message or 'The message was not accepted.'}",
-            severity="critical" if result.auth_error else "warning",
-            ref={"conversation_id": conversation_id},
-        )
+    except ActionError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
     return {"status": "success" if sent else "failed", "message": message}
 
