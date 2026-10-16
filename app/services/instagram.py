@@ -48,10 +48,41 @@ def read_state(state: str) -> Dict[str, str]:
     return {"tenant_id": claims["tid"], "user_id": claims["uid"]}
 
 
+LONG_LIVED_AFTER = 24 * 3600
+
+
+async def _diagnose(short: Dict[str, Any]) -> str:
+    """Facts about a failed token exchange, safe to show the owner and send to support: never the token or secret."""
+    from core.instagram_utils import _token_shape
+
+    token = short.get("access_token") or ""
+    secret = settings.INSTAGRAM_APP_SECRET or ""
+    facts = [
+        f"token {_token_shape(token)}",
+        f"sign-in reply fields {sorted(k for k in short if k != 'access_token')}",
+        f"permissions {short.get('permissions')!r}" if short.get("permissions") else "",
+        f"secret {len(secret)} chars{', hex' if secret and all(c in '0123456789abcdef' for c in secret.lower()) else ', not hex'}",
+        f"app id {settings.INSTAGRAM_APP_ID[:4]}...{settings.INSTAGRAM_APP_ID[-4:]}" if settings.INSTAGRAM_APP_ID else "app id missing",
+    ]
+    try:
+        profile = await account_profile(token)
+        facts.append(f"token works for @{profile.get('username')}")
+    except ValueError as e:
+        facts.append(f"token itself refused: {e}")
+    return "; ".join(f for f in facts if f)
+
+
 async def connect_account(db, tenant_id: str, code: str) -> Dict[str, Any]:
     """Everything that must pass before the account counts as connected. Raises ValueError with a reason."""
     short = await exchange_code(code)
-    token_info = await long_lived_token(short["access_token"])
+    if int(short.get("expires_in") or 0) >= LONG_LIVED_AFTER:
+        # Already a lasting token; exchanging it again is refused.
+        token_info = short
+    else:
+        try:
+            token_info = await long_lived_token(short["access_token"])
+        except ValueError as e:
+            raise ValueError(f"{e} [{await _diagnose(short)}]")
     token = token_info["access_token"]
     profile = await account_profile(token)
     account_id = str(profile.get("user_id") or profile.get("id") or "")
