@@ -13,7 +13,9 @@ from schemas.ws_events import WSEvent
 
 logger = logging.getLogger(__name__)
 
-llm = get_chat_model(purpose="weekly_report", temperature=0.3)
+def _llm():
+    # Built on first use, not at import, so the app and tests load without an API key.
+    return get_chat_model(purpose="weekly_report", temperature=0.3)
 
 
 async def generate_7day_analytics(tenant_id: str) -> Dict[str, Any]:
@@ -148,7 +150,7 @@ Please provide:
 Format cleanly for WhatsApp reading with bold headers and bullet points.
 """
 
-    response = await llm.ainvoke([
+    response = await _llm().ainvoke([
         SystemMessage(content=system_prompt),
         HumanMessage(content=human_prompt)
     ])

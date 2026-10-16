@@ -41,7 +41,9 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # LLM for routing only
 # ---------------------------------------------------------------------------
-router_llm = get_chat_model(purpose="router", temperature=0.0)
+def _router_llm():
+    # Built on first use, not at import, so the app and tests load without an API key.
+    return get_chat_model(purpose="router", temperature=0.0)
 
 AgentName = Literal["customer_support", "lead_generation", "pitch_and_outreach"]
 ALL_AGENTS: List[str] = ["customer_support", "lead_generation", "pitch_and_outreach"]
@@ -115,7 +117,7 @@ async def router_node(state: MasterState) -> Dict[str, Any]:
         - Return at least one agent."""
     )
 
-    structured_llm = router_llm.with_structured_output(RouteResponse)
+    structured_llm = _router_llm().with_structured_output(RouteResponse)
     payload = [system_prompt] + list(state["messages"])
     result: RouteResponse = await structured_llm.ainvoke(payload)
 
